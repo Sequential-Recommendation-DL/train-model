@@ -12,18 +12,22 @@
       pkgs = import nixpkgs { inherit system; };
     in
     {
-      devShells.${system}.default = pkgs.mkShell {
-        buildInputs = with pkgs; [
-          (pkgs.python312.withPackages (
-            ps: with ps; [
-              numpy
-              pandas
-              torch
-              torchvision
-              matplotlib
-            ]
-          ))
-        ];
+       devShells.${system}.default = pkgs.mkShell {
+         buildInputs = with pkgs; [
+           (pkgs.python312.withPackages (
+             ps: with ps; [
+               numpy
+               pandas
+               torch
+               torchvision
+               matplotlib
+               ruff
+               black
+               mypy
+               pip
+             ]
+           ))
+         ];
 
         shellHook = ''
           echo "Development environment configuration ready!" 
