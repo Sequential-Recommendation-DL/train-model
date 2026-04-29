@@ -1,0 +1,10 @@
+numpy
+pandas
+torch
+torchvision
+matplotlib
+ruff
+black
+mypy
+pip
+
