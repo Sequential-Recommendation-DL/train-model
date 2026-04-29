@@ -18,7 +18,8 @@
             ps: with ps; [
               numpy
               pandas
-              pytorch
+              torch
+              torchvision
               matplotlib
             ]
           ))
