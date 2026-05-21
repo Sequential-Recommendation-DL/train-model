@@ -4,12 +4,17 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import os
 
-def train_deepfm(epochs=10, batch_size=2048, lr=0.01, save_path="models/deepfm_model.pth"):
+def train_deepfm(epochs=10, batch_size=512, lr=0.001, save_path="models/deepfm_model.pth"):
     # Load dataset
-    train_data = CTRDataset("data/raw/ctr/train.csv")
-    test_data = CTRDataset("data/raw/ctr/test.csv",
-                           feat_mapper=train_data.feat_mapper,
-                           defaults=train_data.defaults)
+    # train_data = CTRDataset("data/raw/ctr/train.csv")
+    train_data = CTRDataset("data/processed/train_clean.csv")
+    # test_data = CTRDataset("data/raw/ctr/test.csv",
+    #                        feat_mapper=train_data.feat_mapper,
+    #                        defaults=train_data.defaults)
+    test_data = CTRDataset(
+                        "data/processed/test_clean.csv",
+                        feat_mapper=train_data.feat_mapper,
+                                            defaults=train_data.defaults)
 
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=batch_size)
@@ -44,7 +49,9 @@ def train_deepfm(epochs=10, batch_size=2048, lr=0.01, save_path="models/deepfm_m
                 correct += (preds == y).sum().item()
                 total += y.size(0)
 
-        print(f"Epoch {epoch+1}, Loss: {total_loss:.4f}, Acc: {correct/total:.4f}")
+        # print(f"Epoch {epoch+1}, Loss: {total_loss:.4f}, Acc: {correct/total:.4f}")
+        avg_loss = total_loss / len(train_loader)
+        print(f"Epoch {epoch+1}, Avg Loss: {avg_loss:.4f}, Acc: {correct/total:.4f}")
 
     # Save model
     os.makedirs(os.path.dirname(save_path), exist_ok=True)

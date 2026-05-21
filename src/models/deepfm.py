@@ -94,14 +94,14 @@ class CTRDataset(Dataset):
 #     feat_mapper=train_data.feat_mapper,
 #     defaults=train_data.defaults
 # )
-train_data = CTRDataset("data/raw/ctr/train.csv")
-test_data = CTRDataset("data/raw/ctr/test.csv",
-                       feat_mapper=train_data.feat_mapper,
-                       defaults=train_data.defaults)
+# train_data = CTRDataset("data/raw/ctr/train.csv")
+# test_data = CTRDataset("data/raw/ctr/test.csv",
+#                        feat_mapper=train_data.feat_mapper,
+#                        defaults=train_data.defaults)
 
 
-print("Train size:", len(train_data))
-print("Test size:", len(test_data))
+# print("Train size:", len(train_data))
+# print("Test size:", len(test_data))
 
 # """train_data = CTRDataset("ctr/train.csv"):
 
