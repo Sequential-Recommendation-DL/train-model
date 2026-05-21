@@ -7,15 +7,30 @@ import os
 def train_deepfm(epochs=10, batch_size=512, lr=0.001, save_path="models/deepfm_model.pth"):
     # Load dataset
     # train_data = CTRDataset("data/raw/ctr/train.csv")
-    train_data = CTRDataset("data/processed/train_clean.csv")
+    # train_data = CTRDataset("data/processed/train_clean.csv")
+    train_data = CTRDataset("data/processed/train_split.csv")
+    
+    
     # test_data = CTRDataset("data/raw/ctr/test.csv",
     #                        feat_mapper=train_data.feat_mapper,
     #                        defaults=train_data.defaults)
-    test_data = CTRDataset(
-                        "data/processed/test_clean.csv",
+    
+    
+    val_data = CTRDataset(
+                        "data/processed/val_split.csv",
                         feat_mapper=train_data.feat_mapper,
-                                            defaults=train_data.defaults)
+                        defaults=train_data.defaults )   
+    test_data = CTRDataset(
+                        "data/processed/test_split.csv",
+                        feat_mapper=train_data.feat_mapper,
+                        defaults=train_data.defaults
+                    )
+    val_loader = DataLoader(val_data, batch_size=batch_size)
 
+    # test_data = CTRDataset(
+    #                     "data/processed/test_clean.csv",
+    #                     feat_mapper=train_data.feat_mapper,
+    #                                         defaults=train_data.defaults)
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=batch_size)
 
@@ -43,7 +58,8 @@ def train_deepfm(epochs=10, batch_size=512, lr=0.001, save_path="models/deepfm_m
         model.eval()
         correct, total = 0, 0
         with torch.no_grad():
-            for X, y in test_loader:
+            # for X, y in test_loader:
+            for X, y in val_loader:
                 X, y = X.to(device), y.to(device)
                 preds = (model(X) > 0.5).float().squeeze()
                 correct += (preds == y).sum().item()
@@ -51,13 +67,26 @@ def train_deepfm(epochs=10, batch_size=512, lr=0.001, save_path="models/deepfm_m
 
         # print(f"Epoch {epoch+1}, Loss: {total_loss:.4f}, Acc: {correct/total:.4f}")
         avg_loss = total_loss / len(train_loader)
-        print(f"Epoch {epoch+1}, Avg Loss: {avg_loss:.4f}, Acc: {correct/total:.4f}")
-
+        print(f"Epoch {epoch+1}, Avg Loss: {avg_loss:.4f}, Val Acc: {correct/total:.4f}")
     # Save model
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     torch.save(model.state_dict(), save_path)
     print("Model saved to:", os.path.abspath(save_path))
+    
+    print("\n FINAL TEST")
+    model.eval()
+    correct, total = 0, 0
 
+    with torch.no_grad():
+        for X, y in test_loader:
+            X, y = X.to(device), y.to(device)
+
+            preds = (model(X) > 0.5).float().squeeze()
+
+            correct += (preds == y).sum().item()
+            total += y.size(0)
+
+    print(f"Test Acc: {correct/total:.4f}")
 
 if __name__ == "__main__":
     train_deepfm()
