@@ -224,11 +224,11 @@ python -m src.pipeline.pipeline
 
 ## Progress
 
-- [ ] Phase 1 — Validate & Clean Data
-- [ ] Phase 2 — Preprocessing & Feature Engineering
-- [ ] Phase 3 — Data Splitting
-- [ ] Phase 4 — Define NeuMF Model
-- [ ] Phase 5 — Train Model
-- [ ] Phase 6 — Analyze & Evaluate
-- [ ] Phase 7 — Save / Load
-- [ ] Phase 8 — Pipeline Orchestration
+- [x] Phase 1 — Validate & Clean Data
+- [x] Phase 2 — Preprocessing & Feature Engineering
+- [x] Phase 3 — Data Splitting
+- [x] Phase 4 — Define NeuMF Model
+- [x] Phase 5 — Train Model
+- [x] Phase 6 — Analyze & Evaluate
+- [x] Phase 7 — Save / Load
+- [x] Phase 8 — Pipeline Orchestration
