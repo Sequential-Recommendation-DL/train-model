@@ -3,6 +3,7 @@ pandas
 torch
 torchvision
 matplotlib
+huggingface-hub
 ruff
 black
 mypy
