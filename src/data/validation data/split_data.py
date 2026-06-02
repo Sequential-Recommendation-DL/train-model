@@ -39,7 +39,7 @@ def split_dataset(
     with open(test_path, "w", encoding="utf-8") as f:
         f.writelines(test_lines)
 
-    print("===== DATA SPLIT =====")
+    print("DATA SPLIT")
     print("Total:", total)
     print("Train:", len(train_lines))
     print("Validation:", len(val_lines))
