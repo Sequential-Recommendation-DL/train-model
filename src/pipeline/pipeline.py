@@ -1,5 +1,12 @@
+import json
 import sys
+from datetime import datetime
+from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
@@ -7,12 +14,73 @@ from src.data.load_data import load_all
 from src.data.preprocess import clean, encode, split, validate
 from src.features.build_features import NCFDataset, build_user_pos, negative_sample
 from src.models.neumf import NeuMF
-from src.models.predict import evaluate
+from src.models.predict import evaluate_full
 from src.models.save_load import save_model
 from src.models.train import train
 
 HR_THRESHOLD = 0.60
 NDCG_THRESHOLD = 0.35
+RESULTS_BASE = Path("results")
+
+
+def _save_results(out_dir: Path, metrics: dict, history: list[dict]) -> None:  # type: ignore[type-arg]
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_scores = metrics.pop("_raw_scores", [])
+    raw_labels = metrics.pop("_raw_labels", [])
+
+    (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+
+    # Confusion matrix
+    cm = np.array(metrics["confusion_matrix"])
+    fig, ax = plt.subplots(figsize=(5, 4))
+    im = ax.imshow(cm, interpolation="nearest", cmap=plt.cm.Blues)  # type: ignore[attr-defined]
+    fig.colorbar(im)
+    ax.set(
+        xticks=[0, 1], yticks=[0, 1],
+        xticklabels=["Pred 0", "Pred 1"],
+        yticklabels=["Actual 0", "Actual 1"],
+        title="Confusion Matrix",
+    )
+    for i in range(2):
+        for j in range(2):
+            ax.text(j, i, str(cm[i, j]), ha="center", va="center",
+                    color="white" if cm[i, j] > cm.max() / 2 else "black")
+    fig.tight_layout()
+    fig.savefig(out_dir / "confusion_matrix.png", dpi=150)
+    plt.close(fig)
+
+    # ROC curve
+    if raw_scores and raw_labels:
+        from sklearn.metrics import roc_curve
+        probs = 1.0 / (1.0 + np.exp(-np.array(raw_scores, dtype=np.float32)))
+        fpr, tpr, _ = roc_curve(raw_labels, probs)
+        fig, ax = plt.subplots(figsize=(6, 5))
+        ax.plot(fpr, tpr, label=f"AUC={metrics['AUC_ROC']:.4f}")
+        ax.plot([0, 1], [0, 1], "k--", linewidth=0.8)
+        ax.set(xlabel="False Positive Rate", ylabel="True Positive Rate", title="ROC Curve")
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(out_dir / "roc_curve.png", dpi=150)
+        plt.close(fig)
+
+    # Training history — train vs val loss for overfitting detection
+    if history:
+        epochs = [h["epoch"] for h in history]
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+        ax1.plot(epochs, [h["loss"] for h in history], marker="o", label="Train Loss")
+        ax1.plot(epochs, [h.get("val_loss", 0) for h in history], marker="s", label="Val Loss")
+        ax1.set(xlabel="Epoch", ylabel="Avg Loss / Batch", title="Loss Curve (overfitting check)")
+        ax1.legend()
+        ax2.plot(epochs, [h.get("HR@10", 0) for h in history], marker="o", label="HR@10")
+        ax2.plot(epochs, [h.get("NDCG@10", 0) for h in history], marker="s", label="NDCG@10")
+        ax2.set(xlabel="Epoch", ylabel="Score", title="Validation Metrics")
+        ax2.legend()
+        fig.tight_layout()
+        fig.savefig(out_dir / "training_history.png", dpi=150)
+        plt.close(fig)
+
+    print(f"      Results saved → {out_dir}")
 
 
 def run_pipeline(
@@ -21,12 +89,16 @@ def run_pipeline(
     epochs: int = 20,
     batch_size: int = 256,
     lr: float = 1e-3,
-    num_neg_train: int = 4,
+    num_neg_train: int = 2,       # reduced from 4 — cuts training data by 40% for RTX 3050 6GB
     min_interactions: int = 5,
-    max_eval_users: int = 5_000,
+    max_eval_users: int = 2_000,  # reduced from 5000 — eval loop is per-user, expensive at scale
 ) -> dict:  # type: ignore[type-arg]
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Device: {device}")
+    if torch.cuda.is_available():
+        gpu = torch.cuda.get_device_properties(0)
+        print(f"Device: {device} ({gpu.name}, {gpu.total_memory // 1024**2} MB VRAM)")
+    else:
+        print(f"Device: {device}")
 
     print("\n[1/6] Loading & cleaning data...")
     df = load_all(data_dir)
@@ -44,10 +116,12 @@ def run_pipeline(
     print("\n[3/6] Building training features...")
     user_pos = build_user_pos(train_df)
     train_sampled = negative_sample(train_df, num_items, user_pos, num_neg=num_neg_train)
+    pin = device == "cuda"
     train_loader: DataLoader = DataLoader(  # type: ignore[type-arg]
-        NCFDataset(train_sampled), batch_size=batch_size, shuffle=True, num_workers=0
+        NCFDataset(train_sampled), batch_size=batch_size, shuffle=True,
+        num_workers=4, pin_memory=pin, persistent_workers=True,
     )
-    print(f"      Training samples: {len(train_sampled):,}")
+    print(f"      Training samples: {len(train_sampled):,}  Batches/epoch: {len(train_loader):,}")
 
     print("\n[4/6] Training NeuMF...")
     model = NeuMF(num_users, num_items)
@@ -62,17 +136,27 @@ def run_pipeline(
         device=device,
         max_val_users=max_eval_users,
     )
+    train_finished_at = datetime.now()
 
     print("\n[5/6] Evaluating on test set...")
-    metrics = evaluate(
+    metrics = evaluate_full(
         model, test_df, user_pos, num_items,
         device=device, max_users=max_eval_users,
     )
-    print(f"      HR@10={metrics['HR@10']:.4f}  NDCG@10={metrics['NDCG@10']:.4f}")
+    print(
+        f"      HR@10={metrics['HR@10']:.4f}  NDCG@10={metrics['NDCG@10']:.4f}\n"
+        f"      AUC-ROC={metrics['AUC_ROC']:.4f}  Precision={metrics['Precision']:.4f}"
+        f"  Recall={metrics['Recall']:.4f}  F1={metrics['F1']:.4f}"
+    )
+    cm = metrics["confusion_matrix"]
+    print(f"      Confusion Matrix: TN={cm[0][0]}  FP={cm[0][1]}  FN={cm[1][0]}  TP={cm[1][1]}")
+
+    out_dir = RESULTS_BASE / train_finished_at.strftime("%d_%m_%y_%Hh_%Mp")
+    _save_results(out_dir, metrics, history)
 
     print("\n[6/6] Saving model...")
     config = {"num_users": num_users, "num_items": num_items, "gmf_dim": 64, "mlp_dim": 64}
-    save_model(model, model_path, config=config, metadata=metrics)
+    save_model(model, model_path, config=config, metadata={"HR@10": metrics["HR@10"], "NDCG@10": metrics["NDCG@10"]})
 
     if metrics["HR@10"] < HR_THRESHOLD or metrics["NDCG@10"] < NDCG_THRESHOLD:
         print(
