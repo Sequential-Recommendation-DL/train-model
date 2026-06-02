@@ -4,6 +4,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from src.features.build_features import NCFDataset, negative_sample
 from src.models.neumf import NeuMF
@@ -40,15 +41,17 @@ def train(
     for epoch in range(1, epochs + 1):
         model.train()
         total_loss = 0.0
-        for users, items, labels in train_loader:
-            users = users.to(device)
-            items = items.to(device)
-            labels = labels.to(device)
-            optimizer.zero_grad()
-            loss = criterion(model(users, items), labels)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
+        with tqdm(train_loader, desc=f"Epoch {epoch:02d}/{epochs}", unit="batch", leave=False) as pbar:
+            for users, items, labels in pbar:
+                users = users.to(device)
+                items = items.to(device)
+                labels = labels.to(device)
+                optimizer.zero_grad()
+                loss = criterion(model(users, items), labels)
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+                pbar.set_postfix(loss=f"{loss.item():.4f}")
 
         avg_loss = total_loss / len(train_loader)
 
