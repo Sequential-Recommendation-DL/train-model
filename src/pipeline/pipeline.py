@@ -86,12 +86,13 @@ def _save_results(out_dir: Path, metrics: dict, history: list[dict]) -> None:  #
 def run_pipeline(
     data_dir: str = "data/raw/explicit",
     model_path: str = "models/neumf_best.pt",
-    epochs: int = 20,
-    batch_size: int = 256,
+    epochs: int = 10,
+    batch_size: int = 512,
     lr: float = 1e-3,
-    num_neg_train: int = 2,       # reduced from 4 — cuts training data by 40% for RTX 3050 6GB
+    num_neg_train: int = 2,
     min_interactions: int = 5,
-    max_eval_users: int = 2_000,  # reduced from 5000 — eval loop is per-user, expensive at scale
+    max_eval_users: int = 2_000,
+    max_users: int | None = 100_000,  # cap dataset so training finishes in ~1h on RTX 3050 6GB
 ) -> dict:  # type: ignore[type-arg]
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if torch.cuda.is_available():
@@ -107,8 +108,15 @@ def run_pipeline(
     df = clean(df, min_interactions=min_interactions)
     print(f"      After filter: {len(df):,} rows")
 
+    if max_users is not None:
+        unique_users = np.asarray(df["user_id"].unique())
+        if len(unique_users) > max_users:
+            keep = np.random.default_rng(42).choice(unique_users, size=max_users, replace=False)
+            df = df[df["user_id"].isin(keep.tolist())].reset_index(drop=True)  # type: ignore[assignment]
+            print(f"      Capped to {max_users:,} users: {len(df):,} rows remaining")
+
     print("\n[2/6] Encoding & splitting...")
-    df, num_users, num_items = encode(df)
+    df, num_users, num_items = encode(df)  # type: ignore[arg-type]
     print(f"      Users: {num_users:,}  Items: {num_items:,}")
     train_df, val_df, test_df = split(df)
     print(f"      Train: {len(train_df):,}  Val: {len(val_df):,}  Test: {len(test_df):,}")
@@ -119,7 +127,7 @@ def run_pipeline(
     pin = device == "cuda"
     train_loader: DataLoader = DataLoader(  # type: ignore[type-arg]
         NCFDataset(train_sampled), batch_size=batch_size, shuffle=True,
-        num_workers=4, pin_memory=pin, persistent_workers=True,
+        num_workers=2, pin_memory=pin, persistent_workers=True,
     )
     print(f"      Training samples: {len(train_sampled):,}  Batches/epoch: {len(train_loader):,}")
 
