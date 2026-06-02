@@ -1,5 +1,4 @@
 import math
-import random
 from typing import Any
 
 import numpy as np
@@ -35,35 +34,40 @@ def evaluate(
     if max_users is not None and len(test_df) > max_users:
         test_df = test_df.sample(max_users, random_state=42).reset_index(drop=True)
 
+    rng = np.random.default_rng(42)
+    all_users: list[int] = []
+    all_items: list[int] = []
+
+    for _, row in test_df.iterrows():
+        u, pos = int(row["user_idx"]), int(row["item_idx"])  # type: ignore[arg-type]
+        pos_set = user_pos.get(u, set())
+        pool = rng.integers(0, num_items, size=num_neg * 4).tolist()
+        negs: list[int] = [j for j in pool if j != pos and j not in pos_set][:num_neg]
+        while len(negs) < num_neg:
+            j = int(rng.integers(0, num_items))
+            if j != pos and j not in pos_set:
+                negs.append(j)
+        all_users.extend([u] * (num_neg + 1))
+        all_items.extend([pos] + negs)
+
+    users_t = torch.tensor(all_users, dtype=torch.long)
+    items_t = torch.tensor(all_items, dtype=torch.long)
+
     model.eval()
-    hr_list: list[float] = []
-    ndcg_list: list[float] = []
-
+    chunks: list[torch.Tensor] = []
     with torch.no_grad():
-        for _, row in test_df.iterrows():
-            u = int(row["user_idx"])
-            pos = int(row["item_idx"])
-            pos_set = user_pos.get(u, set())
+        for i in range(0, len(users_t), 65536):
+            chunks.append(
+                model(users_t[i : i + 65536].to(device), items_t[i : i + 65536].to(device)).cpu()
+            )
+    preds_mat = torch.cat(chunks).numpy().reshape(len(test_df), num_neg + 1)
 
-            # Over-sample candidates to minimise rejection loop iterations
-            pool = np.random.randint(0, num_items, size=num_neg * 3).tolist()
-            negs: list[int] = [j for j in pool if j != pos and j not in pos_set][:num_neg]
-            while len(negs) < num_neg:
-                j = random.randint(0, num_items - 1)
-                if j != pos and j not in pos_set:
-                    negs.append(j)
-
-            candidates = [pos] + negs
-            users_t = torch.tensor([u] * len(candidates), dtype=torch.long, device=device)
-            items_t = torch.tensor(candidates, dtype=torch.long, device=device)
-            preds = model(users_t, items_t).cpu().tolist()
-            scored = list(zip(preds, [1] + [0] * num_neg))
-            hr_list.append(hit_rate_at_k(scored, k))
-            ndcg_list.append(ndcg_at_k(scored, k))
-
+    # Positive is always at column 0; count items that score higher to get 1-based rank
+    ranks = (preds_mat > preds_mat[:, :1]).sum(axis=1) + 1
+    in_top_k = ranks <= k
     return {
-        f"HR@{k}": sum(hr_list) / len(hr_list),
-        f"NDCG@{k}": sum(ndcg_list) / len(ndcg_list),
+        f"HR@{k}": float(in_top_k.mean()),
+        f"NDCG@{k}": float(np.where(in_top_k, 1.0 / np.log2(ranks + 1), 0.0).mean()),
     }
 
 
@@ -89,55 +93,60 @@ def evaluate_full(
     if max_users is not None and len(test_df) > max_users:
         test_df = test_df.sample(max_users, random_state=42).reset_index(drop=True)
 
+    rng = np.random.default_rng(42)
+    all_users: list[int] = []
+    all_items: list[int] = []
+
+    for _, row in test_df.iterrows():
+        u, pos = int(row["user_idx"]), int(row["item_idx"])  # type: ignore[arg-type]
+        pos_set = user_pos.get(u, set())
+        pool = rng.integers(0, num_items, size=num_neg * 4).tolist()
+        negs: list[int] = [j for j in pool if j != pos and j not in pos_set][:num_neg]
+        while len(negs) < num_neg:
+            j = int(rng.integers(0, num_items))
+            if j != pos and j not in pos_set:
+                negs.append(j)
+        all_users.extend([u] * (num_neg + 1))
+        all_items.extend([pos] + negs)
+
+    users_t = torch.tensor(all_users, dtype=torch.long)
+    items_t = torch.tensor(all_items, dtype=torch.long)
+
     model.eval()
-    hr_list: list[float] = []
-    ndcg_list: list[float] = []
-    all_scores: list[float] = []
-    all_labels: list[int] = []
-
+    chunks: list[torch.Tensor] = []
     with torch.no_grad():
-        for _, row in test_df.iterrows():
-            u = int(row["user_idx"])
-            pos = int(row["item_idx"])
-            pos_set = user_pos.get(u, set())
+        for i in range(0, len(users_t), 65536):
+            chunks.append(
+                model(users_t[i : i + 65536].to(device), items_t[i : i + 65536].to(device)).cpu()
+            )
+    all_preds = torch.cat(chunks).numpy()
 
-            pool = np.random.randint(0, num_items, size=num_neg * 3).tolist()
-            negs: list[int] = [j for j in pool if j != pos and j not in pos_set][:num_neg]
-            while len(negs) < num_neg:
-                j = random.randint(0, num_items - 1)
-                if j != pos and j not in pos_set:
-                    negs.append(j)
+    n = len(test_df)
+    stride = num_neg + 1
+    preds_mat = all_preds.reshape(n, stride)
+    ranks = (preds_mat > preds_mat[:, :1]).sum(axis=1) + 1
+    in_top_k = ranks <= k
+    hr = float(in_top_k.mean())
+    ndcg = float(np.where(in_top_k, 1.0 / np.log2(ranks + 1), 0.0).mean())
 
-            candidates = [pos] + negs
-            users_t = torch.tensor([u] * len(candidates), dtype=torch.long, device=device)
-            items_t = torch.tensor(candidates, dtype=torch.long, device=device)
-            preds = model(users_t, items_t).cpu().tolist()
-            scored = list(zip(preds, [1] + [0] * num_neg))
-
-            hr_list.append(hit_rate_at_k(scored, k))
-            ndcg_list.append(ndcg_at_k(scored, k))
-            all_scores.extend(preds)
-            all_labels.extend([1] + [0] * num_neg)
-
-    scores_arr = np.array(all_scores, dtype=np.float32)
-    labels_arr = np.array(all_labels, dtype=np.int32)
-    probs = 1.0 / (1.0 + np.exp(-scores_arr))  # sigmoid
+    labels_arr = np.tile([1] + [0] * num_neg, n).astype(np.int32)
+    probs = (1.0 / (1.0 + np.exp(-all_preds))).astype(np.float32)
     preds_bin = (probs >= 0.5).astype(int)
 
     cm = confusion_matrix(labels_arr, preds_bin)
     auc = float(roc_auc_score(labels_arr, probs))
-    precision = float(precision_score(labels_arr, preds_bin, zero_division=0))
-    recall = float(recall_score(labels_arr, preds_bin, zero_division=0))
-    f1 = float(f1_score(labels_arr, preds_bin, zero_division=0))
+    precision = float(precision_score(labels_arr, preds_bin, zero_division=0))  # type: ignore[arg-type]
+    recall = float(recall_score(labels_arr, preds_bin, zero_division=0))  # type: ignore[arg-type]
+    f1 = float(f1_score(labels_arr, preds_bin, zero_division=0))  # type: ignore[arg-type]
 
     return {
-        f"HR@{k}": sum(hr_list) / len(hr_list),
-        f"NDCG@{k}": sum(ndcg_list) / len(ndcg_list),
+        f"HR@{k}": hr,
+        f"NDCG@{k}": ndcg,
         "AUC_ROC": auc,
         "Precision": precision,
         "Recall": recall,
         "F1": f1,
         "confusion_matrix": cm.tolist(),
-        "_raw_scores": scores_arr.tolist(),
+        "_raw_scores": all_preds.tolist(),
         "_raw_labels": labels_arr.tolist(),
     }
