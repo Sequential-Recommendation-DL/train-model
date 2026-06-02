@@ -4,6 +4,7 @@ torch
 torchvision
 matplotlib
 scikit-learn
+tqdm
 huggingface-hub
 ruff
 black
