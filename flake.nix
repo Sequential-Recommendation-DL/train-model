@@ -39,7 +39,7 @@
           if ! python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
             echo "Installing CUDA-enabled PyTorch (cu128)..."
             pip install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cu128
-            pip install --quiet numpy pandas matplotlib ruff black mypy huggingface-hub orjson
+            pip install --quiet numpy pandas matplotlib scikit-learn ruff black mypy huggingface-hub orjson
           fi
 
           echo "Development environment configuration ready!"

@@ -3,6 +3,7 @@ pandas
 torch
 torchvision
 matplotlib
+scikit-learn
 huggingface-hub
 ruff
 black
