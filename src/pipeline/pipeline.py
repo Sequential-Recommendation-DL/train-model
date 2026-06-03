@@ -71,7 +71,7 @@ def _save_results(out_dir: Path, metrics: dict, history: list[dict]) -> None:  #
         xticks=[0, 1], yticks=[0, 1],
         xticklabels=["Pred 0", "Pred 1"],
         yticklabels=["Actual 0", "Actual 1"],
-        title="Confusion Matrix",
+        title="Confusion Matrix (top-10 per user)",
     )
     for i in range(2):
         for j in range(2):
@@ -120,10 +120,10 @@ def run_pipeline(
     epochs: int = 10,
     batch_size: int = 512,
     lr: float = 1e-3,
-    num_neg_train: int = 2,
+    num_neg_train: int = 4,
     min_interactions: int = 5,
     max_eval_users: int = 2_000,
-    max_users: int | None = 500_000,  # total cap; split equally across categories to prevent bias
+    max_users: int | None = 250_000,  # total cap; split equally across categories to prevent bias
 ) -> dict:  # type: ignore[type-arg]
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if torch.cuda.is_available():
@@ -191,7 +191,7 @@ def run_pipeline(
         epochs=epochs,
         lr=lr,
         device=device,
-        patience=3,
+        patience=5,
         max_val_users=max_eval_users,
     )
     train_finished_at = datetime.now()
@@ -212,10 +212,10 @@ def run_pipeline(
         f"      NDCG@10 = Σ(1/log₂(rank+1))/users = {ndcg_sum}/{n_total} = {metrics['NDCG@10']:.4f}\n"
         f"               [rank of positive; gain = 1/log₂(rank+1) if rank≤10, else 0]\n"
         f"      AUC-ROC = {metrics['AUC_ROC']:.4f}  [P(score_pos > score_neg) over all pos/neg pairs]\n"
-        f"      Precision = TP/(TP+FP) = {tp}/{tp+fp} = {metrics['Precision']:.4f}  [threshold 0.5]\n"
-        f"      Recall    = TP/(TP+FN) = {tp}/{tp+fn} = {metrics['Recall']:.4f}\n"
+        f"      Precision = TP/(TP+FP) = {tp}/{tp+fp} = {metrics['Precision']:.4f}  [top-10 per user]\n"
+        f"      Recall    = TP/(TP+FN) = {tp}/{tp+fn} = {metrics['Recall']:.4f}  [== HR@10]\n"
         f"      F1        = 2·P·R/(P+R) = {metrics['F1']:.4f}\n"
-        f"      Confusion : TN={cm[0][0]}  FP={fp}  FN={fn}  TP={tp}"
+        f"      Confusion : TN={cm[0][0]}  FP={fp}  FN={fn}  TP={tp}  [ranking-based, opt_thr={metrics.get('optimal_threshold', 0):.3f}]"
     )
 
     out_dir = RESULTS_BASE / train_finished_at.strftime("%d_%m_%y_%Hh_%Mp")

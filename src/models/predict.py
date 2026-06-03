@@ -131,13 +131,27 @@ def evaluate_full(
 
     labels_arr = np.tile([1] + [0] * num_neg, n).astype(np.int32)
     probs = (1.0 / (1.0 + np.exp(-all_preds))).astype(np.float32)
-    preds_bin = (probs >= 0.5).astype(int)
-
-    cm = confusion_matrix(labels_arr, preds_bin)
     auc = float(roc_auc_score(labels_arr, probs))
-    precision = float(precision_score(labels_arr, preds_bin, zero_division=0))  # type: ignore[arg-type]
-    recall = float(recall_score(labels_arr, preds_bin, zero_division=0))  # type: ignore[arg-type]
-    f1 = float(f1_score(labels_arr, preds_bin, zero_division=0))  # type: ignore[arg-type]
+
+    # Ranking-based CM: predict top-K per user group as positive.
+    # Recall = HR@K (a hit = TP), so this CM is the most meaningful for ranking models.
+    preds_ranking = np.zeros(len(labels_arr), dtype=np.int32)
+    for i in range(n):
+        start = i * stride
+        top_k_idx = np.argsort(all_preds[start : start + stride])[::-1][:k]
+        preds_ranking[start + top_k_idx] = 1
+    cm_ranking = confusion_matrix(labels_arr, preds_ranking)
+
+    # Optimal-threshold CM: threshold that maximises Youden's J (sensitivity + specificity - 1).
+    from sklearn.metrics import roc_curve as _roc_curve
+    fpr_arr, tpr_arr, thr_arr = _roc_curve(labels_arr, probs)
+    opt_thr = float(thr_arr[np.argmax(tpr_arr - fpr_arr)])
+    preds_opt = (probs >= opt_thr).astype(np.int32)
+    cm_opt = confusion_matrix(labels_arr, preds_opt)
+
+    # Fixed-threshold CM kept as supplementary reference.
+    preds_t05 = (probs >= 0.5).astype(np.int32)
+    cm_t05 = confusion_matrix(labels_arr, preds_t05)
 
     return {
         f"HR@{k}": hr,
@@ -145,10 +159,16 @@ def evaluate_full(
         "n_hits_at_k": int(in_top_k.sum()),
         "n_eval_users": n,
         "AUC_ROC": auc,
-        "Precision": precision,
-        "Recall": recall,
-        "F1": f1,
-        "confusion_matrix": cm.tolist(),
+        # Ranking-based metrics (primary — preds_ranking so Recall == HR@K)
+        "Precision": float(precision_score(labels_arr, preds_ranking, zero_division=0)),  # type: ignore[arg-type]
+        "Recall": float(recall_score(labels_arr, preds_ranking, zero_division=0)),  # type: ignore[arg-type]
+        "F1": float(f1_score(labels_arr, preds_ranking, zero_division=0)),  # type: ignore[arg-type]
+        "confusion_matrix": cm_ranking.tolist(),
+        # Optimal-threshold metrics (supplementary)
+        "optimal_threshold": opt_thr,
+        "confusion_matrix_opt": cm_opt.tolist(),
+        # Fixed-threshold reference (0.5 — misleading for ranking models, kept for comparison)
+        "confusion_matrix_t05": cm_t05.tolist(),
         "_raw_scores": all_preds.tolist(),
         "_raw_labels": labels_arr.tolist(),
     }
