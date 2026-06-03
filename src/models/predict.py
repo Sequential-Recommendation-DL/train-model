@@ -142,6 +142,8 @@ def evaluate_full(
     return {
         f"HR@{k}": hr,
         f"NDCG@{k}": ndcg,
+        "n_hits_at_k": int(in_top_k.sum()),
+        "n_eval_users": n,
         "AUC_ROC": auc,
         "Precision": precision,
         "Recall": recall,

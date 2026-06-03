@@ -21,6 +21,7 @@ def train(
     epochs: int = 20,
     lr: float = 1e-3,
     weight_decay: float = 1e-5,
+    patience: int = 3,
     device: str = "cpu",
     max_val_users: int = 5_000,
 ) -> tuple[NeuMF, list[dict]]:  # type: ignore[type-arg]
@@ -29,6 +30,8 @@ def train(
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=lr * 0.01)
     best_hr = 0.0
+    best_val_loss = float("inf")
+    no_improve = 0
     best_state: dict | None = None  # type: ignore[type-arg]
     history: list[dict] = []  # type: ignore[type-arg]
 
@@ -84,6 +87,15 @@ def train(
         if metrics["HR@10"] > best_hr:
             best_hr = metrics["HR@10"]
             best_state = copy.deepcopy(model.state_dict())
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            no_improve = 0
+        else:
+            no_improve += 1
+            if no_improve >= patience:
+                print(f"\nEarly stop at epoch {epoch}: val_loss has not improved for {patience} epochs.")
+                break
 
     if best_state is not None:
         model.load_state_dict(best_state)

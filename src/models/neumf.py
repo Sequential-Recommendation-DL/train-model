@@ -10,7 +10,7 @@ class NeuMF(nn.Module):
         gmf_dim: int = 64,
         mlp_dim: int = 64,
         mlp_layers: list[int] | None = None,
-        dropout: float = 0.2,
+        dropout: float = 0.5,
     ) -> None:
         super().__init__()
         if mlp_layers is None:
