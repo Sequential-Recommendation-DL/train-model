@@ -3,6 +3,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -92,7 +93,7 @@ def run_pipeline(
     num_neg_train: int = 2,
     min_interactions: int = 5,
     max_eval_users: int = 2_000,
-    max_users: int | None = 100_000,  # cap dataset so training finishes in ~1h on RTX 3050 6GB
+    max_users: int | None = 200_000,  # total cap; split equally across categories to prevent bias
 ) -> dict:  # type: ignore[type-arg]
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if torch.cuda.is_available():
@@ -109,11 +110,20 @@ def run_pipeline(
     print(f"      After filter: {len(df):,} rows")
 
     if max_users is not None:
-        unique_users = np.asarray(df["user_id"].unique())
-        if len(unique_users) > max_users:
-            keep = np.random.default_rng(42).choice(unique_users, size=max_users, replace=False)
-            df = df[df["user_id"].isin(keep.tolist())].reset_index(drop=True)  # type: ignore[assignment]
-            print(f"      Capped to {max_users:,} users: {len(df):,} rows remaining")
+        cats = sorted(df["_category"].unique().tolist())
+        per_cap = max_users // len(cats)
+        sub_dfs = []
+        for cat in cats:
+            sub = df[df["_category"] == cat]
+            users = np.asarray(sub["user_id"].unique())  # type: ignore[union-attr]
+            if len(users) > per_cap:
+                keep = np.random.default_rng(42).choice(users, size=per_cap, replace=False)
+                sub = sub[sub["user_id"].isin(keep.tolist())]  # type: ignore[assignment,index]
+            sub_dfs.append(sub)
+            n_users = len(users) if len(users) <= per_cap else per_cap
+            print(f"      {cat}: {n_users:,} users, {len(sub):,} rows")
+        df = pd.concat(sub_dfs, ignore_index=True)
+    df.drop(columns="_category", inplace=True)
 
     print("\n[2/6] Encoding & splitting...")
     df, num_users, num_items = encode(df)  # type: ignore[arg-type]
