@@ -10,6 +10,7 @@ class NeuMF(nn.Module):
         gmf_dim: int = 64,
         mlp_dim: int = 64,
         mlp_layers: list[int] | None = None,
+        dropout: float = 0.2,
     ) -> None:
         super().__init__()
         if mlp_layers is None:
@@ -23,7 +24,7 @@ class NeuMF(nn.Module):
         in_dim = mlp_dim * 2
         layers: list[nn.Module] = []
         for out_dim in mlp_layers:
-            layers += [nn.Linear(in_dim, out_dim), nn.ReLU()]
+            layers += [nn.Linear(in_dim, out_dim), nn.ReLU(), nn.Dropout(dropout)]
             in_dim = out_dim
         self.mlp = nn.Sequential(*layers)
 
