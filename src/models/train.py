@@ -3,6 +3,7 @@ import copy
 import pandas as pd
 import torch
 import torch.nn as nn
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -19,12 +20,14 @@ def train(
     num_items: int,
     epochs: int = 20,
     lr: float = 1e-3,
+    weight_decay: float = 1e-5,
     device: str = "cpu",
     max_val_users: int = 5_000,
 ) -> tuple[NeuMF, list[dict]]:  # type: ignore[type-arg]
     model = model.to(device)
     criterion = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=lr * 0.01)
     best_hr = 0.0
     best_state: dict | None = None  # type: ignore[type-arg]
     history: list[dict] = []  # type: ignore[type-arg]
@@ -69,10 +72,13 @@ def train(
             model, val_df, user_pos, num_items,
             device=device, max_users=max_val_users,
         )
-        history.append({"epoch": epoch, "loss": avg_loss, "val_loss": val_loss, **metrics})
+        scheduler.step()
+        current_lr = scheduler.get_last_lr()[0]
+        history.append({"epoch": epoch, "loss": avg_loss, "val_loss": val_loss, "lr": current_lr, **metrics})
         print(
             f"Epoch {epoch:02d} | loss={avg_loss:.4f} | val_loss={val_loss:.4f}"
             f" | HR@10={metrics['HR@10']:.4f} | NDCG@10={metrics['NDCG@10']:.4f}"
+            f" | lr={current_lr:.2e}"
         )
 
         if metrics["HR@10"] > best_hr:
