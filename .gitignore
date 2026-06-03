@@ -4,3 +4,4 @@ venv/
 .env
 data/raw/
 .venv/
+models/*.pt
