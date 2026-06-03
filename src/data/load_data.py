@@ -13,7 +13,9 @@ def load_all(data_dir: str = "data/raw/explicit") -> pd.DataFrame:
     for fname in CATEGORIES:
         path = os.path.join(data_dir, fname)
         if os.path.exists(path):
-            frames.append(load_csv(path))
+            df = load_csv(path)
+            df["_category"] = fname
+            frames.append(df)
         else:
             print(f"Warning: {path} not found, skipping.")
     if not frames:
