@@ -18,41 +18,16 @@ from src.models.neumf import NeuMF
 from src.models.predict import evaluate_full
 from src.models.save_load import save_model
 from src.models.train import train
+from src.pipeline.phase1 import loading_and_clean_data
+from src.pipeline.phase2 import encodingAndSplitting
+from src.utils.check_gpu import check_gpu
+from src.utils.min_interactions import MinInteractions
+from src.utils.load_cache_data import loadCacheData
 
 HR_THRESHOLD = 0.60
 NDCG_THRESHOLD = 0.35
 RESULTS_BASE = Path("results")
 PROCESSED_DIR = Path("data/processed")
-
-
-def _load_cache(key: str) -> tuple | None:  # type: ignore[type-arg]
-    meta_file = PROCESSED_DIR / f"{key}_meta.json"
-    if not meta_file.exists():
-        return None
-    meta = json.loads(meta_file.read_text())
-    try:
-        return (
-            pd.read_pickle(PROCESSED_DIR / f"{key}_train.pkl"),
-            pd.read_pickle(PROCESSED_DIR / f"{key}_val.pkl"),
-            pd.read_pickle(PROCESSED_DIR / f"{key}_test.pkl"),
-            meta["num_users"],
-            meta["num_items"],
-        )
-    except Exception:
-        return None
-
-
-def _save_cache(key: str, train_df: pd.DataFrame, val_df: pd.DataFrame,
-                test_df: pd.DataFrame, num_users: int, num_items: int) -> None:
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    train_df.to_pickle(PROCESSED_DIR / f"{key}_train.pkl")
-    val_df.to_pickle(PROCESSED_DIR / f"{key}_val.pkl")
-    test_df.to_pickle(PROCESSED_DIR / f"{key}_test.pkl")
-    (PROCESSED_DIR / f"{key}_meta.json").write_text(
-        json.dumps({"num_users": num_users, "num_items": num_items})
-    )
-    print(f"      Saved processed data → {PROCESSED_DIR}/{key}_*.pkl")
-
 
 def _save_results(out_dir: Path, metrics: dict, history: list[dict]) -> None:  # type: ignore[type-arg]
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -114,62 +89,18 @@ def _save_results(out_dir: Path, metrics: dict, history: list[dict]) -> None:  #
     print(f"      Results saved → {out_dir}")
 
 
+'''
 def run_pipeline(
     data_dir: str = "data/raw/explicit",
     model_path: str = "models/neumf_best.pt",
     epochs: int = 10,
     batch_size: int = 512,
     lr: float = 1e-3,
-    num_neg_train: int = 4,
+    num_neg_train: int = 15,
     min_interactions: int = 5,
     max_eval_users: int = 2_000,
     max_users: int | None = 250_000,  # total cap; split equally across categories to prevent bias
 ) -> dict:  # type: ignore[type-arg]
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    if torch.cuda.is_available():
-        gpu = torch.cuda.get_device_properties(0)
-        print(f"Device: {device} ({gpu.name}, {gpu.total_memory // 1024**2} MB VRAM)")
-    else:
-        print(f"Device: {device}")
-
-    cache_key = f"mi{min_interactions}_mu{max_users if max_users else 'all'}"
-    cached = _load_cache(cache_key)
-    if cached:
-        train_df, val_df, test_df, num_users, num_items = cached
-        print(f"\n[1-2/6] Loaded processed data from cache (key={cache_key})")
-        print(f"        Users: {num_users:,}  Items: {num_items:,}")
-        print(f"        Train: {len(train_df):,}  Val: {len(val_df):,}  Test: {len(test_df):,}")
-    else:
-        print("\n[1/6] Loading & cleaning data...")
-        df = load_all(data_dir)
-        print(f"      Raw rows: {len(df):,}")
-        df = validate(df)
-        df = clean(df, min_interactions=min_interactions)
-        print(f"      After filter: {len(df):,} rows")
-
-        if max_users is not None:
-            cats = sorted(df["_category"].unique().tolist())
-            per_cap = max_users // len(cats)
-            sub_dfs = []
-            for cat in cats:
-                sub = df[df["_category"] == cat]
-                users = np.asarray(sub["user_id"].unique())  # type: ignore[union-attr]
-                if len(users) > per_cap:
-                    keep = np.random.default_rng(42).choice(users, size=per_cap, replace=False)
-                    sub = sub[sub["user_id"].isin(keep.tolist())]  # type: ignore[assignment,index]
-                sub_dfs.append(sub)
-                n_users = len(users) if len(users) <= per_cap else per_cap
-                print(f"      {cat}: {n_users:,} users, {len(sub):,} rows")
-            df = pd.concat(sub_dfs, ignore_index=True)
-        df.drop(columns="_category", inplace=True)
-
-        print("\n[2/6] Encoding & splitting...")
-        df, num_users, num_items = encode(df)  # type: ignore[arg-type]
-        print(f"      Users: {num_users:,}  Items: {num_items:,}")
-        train_df, val_df, test_df = split(df)
-        print(f"      Train: {len(train_df):,}  Val: {len(val_df):,}  Test: {len(test_df):,}")
-        _save_cache(cache_key, train_df, val_df, test_df, num_users, num_items)
-
     print("\n[3/6] Building training features...")
     user_pos = build_user_pos(train_df)
     train_sampled = negative_sample(train_df, num_items, user_pos, num_neg=num_neg_train)
@@ -235,6 +166,21 @@ def run_pipeline(
 
     print("\nDone.")
     return metrics
+'''
+
+def run_pipeline():
+    device = check_gpu()
+    minInteractions = MinInteractions
+    cache_key = f"mi{minInteractions.value}"
+    cached = loadCacheData(cache_key)
+    if cached:
+        train_df, val_df, test_df, num_users, num_items = cached
+        print(f"\n [2/6] Loaded processed data from cache (key={cache_key})")
+        print(f" - Users: {num_users:,}  Items: {num_items:,}")
+        print(f" - Train: {len(train_df):,}  Val: {len(val_df):,}  Test: {len(test_df):,}")
+    else:
+        df = loading_and_clean_data(minInteractions)
+        train_df, val_df, test_df, num_users, num_items = encodingAndSplitting(df, cache_key)
 
 
 if __name__ == "__main__":
