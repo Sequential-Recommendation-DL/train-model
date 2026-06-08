@@ -5,4 +5,7 @@ venv/
 data/raw/
 .venv/
 models/*.pt
-data/processed/*
+data/processed/
+.claude/
+AGENTS.md
+CLAUDE.md
