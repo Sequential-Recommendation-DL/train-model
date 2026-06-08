@@ -1,5 +1,5 @@
 {
-  description = "Development environment configuration for NeuMF";
+  description = "Development environment";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
