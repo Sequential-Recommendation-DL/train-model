@@ -1,20 +1,20 @@
 import os
 import pandas as pd
 
-CATEGORIES = ("electronics.csv", "musical_instrument.csv")
+categories = ("electronics.csv", "musical_instrument.csv")
 
 
-def load_csv(path: str) -> pd.DataFrame:
+def load_csv(path):
     return pd.read_csv(path, dtype={"user_id": str, "parent_asin": str})
 
 
-def load_all(data_dir: str = "data/raw/explicit") -> pd.DataFrame:
+def load_all(data_dir= "data/raw/explicit"):
     frames = []
-    for fname in CATEGORIES:
-        path = os.path.join(data_dir, fname)
+    for category in categories:
+        path = os.path.join(data_dir, category)
         if os.path.exists(path):
             df = load_csv(path)
-            df["_category"] = fname
+            df["_category"] = category 
             frames.append(df)
         else:
             print(f"Warning: {path} not found, skipping.")
