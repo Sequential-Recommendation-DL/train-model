@@ -1,3 +1,11 @@
 .direnv/
 venv/
 *__pycache__/
+.env
+data/raw/
+.venv/
+models/*.pt
+data/processed/
+.claude/
+AGENTS.md
+CLAUDE.md
