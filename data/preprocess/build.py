@@ -15,6 +15,8 @@ from .config import (
     VAL_PATH,
     METADATA_PATH,
     TIMESTAMP_RANGE,
+    MIN_ITEM_INTERACTIONS,
+    HOUR_BIN_SIZE,
     TRAIN_RATIO,
     RANDOM_SEED,
 )
@@ -47,6 +49,17 @@ def run(n_rows: int | None = None):
     print(f"     After dedup:        {n_before - n_dup:,} / {n_before:,}")
     print(f"     After timestamp:    {len(df):,} / {n_before:,} (range {t_min}..{t_max})")
 
+    # ── 2b. Filter rare items ──
+    if MIN_ITEM_INTERACTIONS > 0:
+        with timer("2b. Filter rare items"):
+            n_before = len(df)
+            item_counts = df["item_id"].value_counts()
+            valid_items = item_counts[item_counts >= MIN_ITEM_INTERACTIONS].index
+            df = df[df["item_id"].isin(valid_items)]
+        n_removed = n_before - len(df)
+        print(f"     Items < {MIN_ITEM_INTERACTIONS} interactions removed: {n_removed:,} rows ({n_removed / n_before * 100:.1f}%)")
+        print(f"     Kept {len(df):,} / {n_before:,} rows")
+
     # ── 3. Score ──
     with timer("3. Score behavior"):
         score_map = {"pv": 1, "fav": 2, "cart": 3, "buy": 4}
@@ -70,11 +83,25 @@ def run(n_rows: int | None = None):
     print(f"     Users: {n_users:,}  Items: {n_items:,}  Sparsity: {sparsity:.4%}")
     print(f"     {n_before_gb:,} rows \u2192 {len(df):,} rows ({compression:.1f}% reduction)")
 
-    # ── 4b. Take top N by timestamp ──
+    # ── 4b. Stratified sample by hour ──
     if n_rows is not None and n_rows < len(df):
-        with timer("4b. Take top N by timestamp"):
-            df = df.sort_values("Timestamp", ascending=False).head(n_rows).reset_index(drop=True)
-        print(f"     Took {n_rows:,} most recent (user, item) pairs")
+        with timer("4b. Stratified sample by hour"):
+            df["_hour_bin"] = df["Timestamp"] // (HOUR_BIN_SIZE * 3600)
+            freq = df["_hour_bin"].value_counts(normalize=True)
+            samples_per_bin = (freq * n_rows).round().astype(int)
+            parts = []
+            actual = 0
+            for bin_val, n_take in samples_per_bin.items():
+                bin_df = df[df["_hour_bin"] == bin_val]
+                n_take = min(n_take, len(bin_df))
+                if n_take > 0:
+                    parts.append(bin_df.sample(n=n_take, random_state=RANDOM_SEED))
+                    actual += n_take
+            df = pd.concat(parts, ignore_index=True)
+            df = df.drop(columns=["_hour_bin"])
+        n_hours = int((df["Timestamp"].max() - df["Timestamp"].min()) / 3600)
+        print(f"     Sampled {actual:,} rows across time buckets")
+        print(f"     Timestamp span: ~{n_hours} hours")
         n_users = df["UserId"].nunique()
         n_items = df["ItemId"].nunique()
 
@@ -86,7 +113,7 @@ def run(n_rows: int | None = None):
         df["Label"] = df["Label"].astype(np.float32)
     print(f"     Raw range: [{raw_min}, {raw_max}] \u2192 (0, 2) via 2*tanh(x/5)")
 
-    # Label distribution (binned)
+    # Label distribution
     print(f"\n     Label distribution (binned):")
     bins = [0, 0.5, 1.0, 1.25, 1.5, 1.75, 2.0]
     labels_bin = [f"{bins[i]:.2f}-{bins[i+1]:.2f}" for i in range(len(bins) - 1)]
@@ -94,17 +121,20 @@ def run(n_rows: int | None = None):
     for lbl, cnt in binned.items():
         print(f"       {lbl:>9}: {cnt:>8,} ({cnt / len(df) * 100:5.2f}%)")
 
-    # ── 5. Split ──
-    with timer("5. Split"):
-        train, val = train_test_split(
-            df,
+    # ── 5. Split by user ──
+    with timer("5. Split by user"):
+        unique_users = pd.Series(df["UserId"].unique())
+        train_users, val_users = train_test_split(
+            unique_users,
             test_size=1 - TRAIN_RATIO,
             random_state=RANDOM_SEED,
         )
+        train = df[df["UserId"].isin(train_users)].copy()
+        val = df[df["UserId"].isin(val_users)].copy()
     total = len(train) + len(val)
-    print(f"     Train: {len(train):,} ({len(train) / total * 100:.1f}%)")
-    print(f"     Val:   {len(val):,} ({len(val) / total * 100:.1f}%)")
-    print(f"     Label mean: train={train['Label'].mean():.2f}  val={val['Label'].mean():.2f}")
+    print(f"     Train users: {len(train_users):,} | rows: {len(train):,} ({len(train) / total * 100:.1f}%)")
+    print(f"     Val users:   {len(val_users):,} | rows: {len(val):,} ({len(val) / total * 100:.1f}%)")
+    print(f"     Label mean: train={train['Label'].mean():.4f}  val={val['Label'].mean():.4f}")
 
     # ── 6. Save ──
     with timer("6. Save"):
@@ -123,10 +153,16 @@ def run(n_rows: int | None = None):
             "n_val": len(val),
             "n_users": n_users,
             "n_items": n_items,
+            "n_train_users": int(train["UserId"].nunique()),
+            "n_val_users": int(val["UserId"].nunique()),
+            "min_item_interactions": MIN_ITEM_INTERACTIONS,
+            "hour_bin_size": HOUR_BIN_SIZE,
+            "sampling": "stratified_by_hour",
+            "split": "user_holdout",
             "label_raw_range": [int(raw_min), int(raw_max)],
-            "label_norm": "2*sigmoid -> (0, 2)",
+            "label_norm": "2*tanh(x/5) -> (0, 2)",
             "label_percentiles": {f"{p}%": round(float(df["Label"].quantile(p / 100)), 4) for p in [1, 5, 10, 25, 50, 75, 90, 95, 99]},
-            "timestamp_range": list(TIMESTAMP_RANGE),
+            "timestamp_span_hours": int((df["Timestamp"].max() - df["Timestamp"].min()) / 3600),
             "train_ratio": TRAIN_RATIO,
             "random_seed": RANDOM_SEED,
             "columns": ["UserId", "ItemId", "Timestamp", "Label"],
