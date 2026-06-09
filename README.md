@@ -26,12 +26,20 @@ There are two ways to set up the development environment:
    pip install -r requirements.txt
    ```
 4. If requirements.txt is not present, you can generate it from the flake or by using:
+
    ```bash
    pip freeze > requirements.txt
    ```
+
    (Note: The flake.nix already defines the dependencies, so you can also create requirements.txt by translating the flake.)
 
 5. To deactivate the environment:
+
    ```bash
    deactivate
+
    ```
+
+6. Explicit Dataset
+
+- https://huggingface.co/datasets/McAuley-Lab/Amazon-Reviews-2023
