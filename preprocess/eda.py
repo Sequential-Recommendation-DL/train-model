@@ -1,3 +1,4 @@
+import argparse
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -6,7 +7,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from utils import timer, ensure_dir
-from config import RAW_DATA, COLUMNS, DTYPES, EDA_DIR
+from config import RAW_DATA, COLUMNS, DTYPES, EDA_DIR, RANDOM_SEED
 
 plt.rcParams["figure.dpi"] = 120
 plt.rcParams["figure.figsize"] = (10, 5)
@@ -21,7 +22,7 @@ def print_section(title: str):
     print(SEP)
 
 
-def run():
+def run(n_rows: int | None = None):
     ensure_dir(EDA_DIR)
 
     with timer("Load data"):
@@ -29,6 +30,10 @@ def run():
 
     n_total = len(df)
     print(f"Total rows: {n_total:,}")
+
+    if n_rows is not None and n_rows < n_total:
+        df = df.sample(n=n_rows, random_state=RANDOM_SEED)
+        print(f"Sampled: {n_rows:,} / {n_total:,} ({n_rows / n_total * 100:.2f}%)\n")
 
     # ── 1. Missing values & duplicates ──
     print_section("1. Missing Values & Duplicates")
@@ -251,4 +256,7 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--rows", type=int, default=None, help="sample N rows from raw data")
+    args = parser.parse_args()
+    run(n_rows=args.rows)

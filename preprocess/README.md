@@ -26,7 +26,9 @@ Không feature engineering, không encode, không cumulative features. Split tr�
 ## Chạy
 
 ```bash
-python -m preprocess.build
+PYTHONPATH=preprocess python -m preprocess.build                 # full data
+PYTHONPATH=preprocess python -m preprocess.build --rows 250000   # 250K raw rows
+PYTHONPATH=preprocess python -m preprocess.build --rows 500000   # 500K raw rows
 ```
 
 Output lưu ở `data/processs/`.
