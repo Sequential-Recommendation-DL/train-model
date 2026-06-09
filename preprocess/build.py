@@ -82,9 +82,9 @@ def run(n_rows: int | None = None):
     with timer("4c. Normalize Label to (0, 2)"):
         raw_min = df["Label"].min()
         raw_max = df["Label"].max()
-        df["Label"] = 2.0 / (1.0 + np.exp(-df["Label"].to_numpy(dtype=np.float64)))
+        df["Label"] = 2.0 * np.tanh(df["Label"].to_numpy(dtype=np.float64) / 5.0)
         df["Label"] = df["Label"].astype(np.float32)
-    print(f"     Raw range: [{raw_min}, {raw_max}] \u2192 (0, 2) via 2*sigmoid")
+    print(f"     Raw range: [{raw_min}, {raw_max}] \u2192 (0, 2) via 2*tanh(x/5)")
 
     # Label distribution (binned)
     print(f"\n     Label distribution (binned):")

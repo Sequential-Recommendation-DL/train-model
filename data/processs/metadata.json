@@ -1,10 +1,37 @@
 {
-  "n_rows_take": 500000,
+  "n_rows_take": 250000,
   "n_rows_raw": 100150807,
-  "n_rows_clean": 500000,
-  "n_train": 450000,
-  "n_val": 50000,
-  "n_users": 92123,
-  "n_items": 291597,
+  "n_rows_clean": 250000,
+  "n_train": 225000,
+  "n_val": 25000,
+  "n_users": 54801,
+  "n_items": 172363,
   "label_raw_range": [
-    
+    1,
+    208
+  ],
+  "label_norm": "2*sigmoid -> (0, 2)",
+  "label_percentiles": {
+    "1%": 0.3948,
+    "5%": 0.3948,
+    "10%": 0.3948,
+    "25%": 0.3948,
+    "50%": 0.3948,
+    "75%": 0.7599,
+    "90%": 1.3281,
+    "95%": 1.5232,
+    "99%": 1.9281
+  },
+  "timestamp_range": [
+    1511568000,
+    1512345600
+  ],
+  "train_ratio": 0.9,
+  "random_seed": 42,
+  "columns": [
+    "UserId",
+    "ItemId",
+    "Timestamp",
+    "Label"
+  ]
+}
