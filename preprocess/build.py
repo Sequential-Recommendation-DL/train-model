@@ -78,13 +78,21 @@ def run(n_rows: int | None = None):
         n_users = df["UserId"].nunique()
         n_items = df["ItemId"].nunique()
 
-    # Label distribution
-    print(f"\n     Label distribution (top 10):")
-    label_dist = df["Label"].value_counts().sort_index().head(10)
-    for label, cnt in label_dist.items():
-        pct = cnt / len(df) * 100
-        bar = "\u2588" * max(1, int(pct / 2))
-        print(f"       {label:>3}: {cnt:>8,} ({pct:5.2f}%) {bar}")
+    # ── 4c. Normalize Label to (0, 2) ──
+    with timer("4c. Normalize Label to (0, 2)"):
+        raw_min = df["Label"].min()
+        raw_max = df["Label"].max()
+        df["Label"] = 2.0 / (1.0 + np.exp(-df["Label"].to_numpy(dtype=np.float64)))
+        df["Label"] = df["Label"].astype(np.float32)
+    print(f"     Raw range: [{raw_min}, {raw_max}] \u2192 (0, 2) via 2*sigmoid")
+
+    # Label distribution (binned)
+    print(f"\n     Label distribution (binned):")
+    bins = [0, 0.5, 1.0, 1.25, 1.5, 1.75, 2.0]
+    labels_bin = [f"{bins[i]:.2f}-{bins[i+1]:.2f}" for i in range(len(bins) - 1)]
+    binned = pd.cut(df["Label"], bins=bins, labels=labels_bin).value_counts()
+    for lbl, cnt in binned.items():
+        print(f"       {lbl:>9}: {cnt:>8,} ({cnt / len(df) * 100:5.2f}%)")
 
     # ── 5. Split ──
     with timer("5. Split"):
@@ -115,7 +123,9 @@ def run(n_rows: int | None = None):
             "n_val": len(val),
             "n_users": n_users,
             "n_items": n_items,
-            "score_distribution": {str(k): int(v) for k, v in df["Label"].value_counts().sort_index().items()},
+            "label_raw_range": [raw_min, raw_max],
+            "label_norm": "2*sigmoid -> (0, 2)",
+            "label_percentiles": {f"{p}%": round(float(df["Label"].quantile(p / 100)), 4) for p in [1, 5, 10, 25, 50, 75, 90, 95, 99]},
             "timestamp_range": list(TIMESTAMP_RANGE),
             "train_ratio": TRAIN_RATIO,
             "random_seed": RANDOM_SEED,
