@@ -26,9 +26,9 @@ Không feature engineering, không encode, không cumulative features. Split tr�
 ## Chạy
 
 ```bash
-PYTHONPATH=preprocess python -m preprocess.build                 # full data
-PYTHONPATH=preprocess python -m preprocess.build --rows 250000   # 250K raw rows
-PYTHONPATH=preprocess python -m preprocess.build --rows 500000   # 500K raw rows
+python -m data.preprocess.build                 # full data
+python -m data.preprocess.build --rows 250000   # 250K most recent pairs
+python -m data.preprocess.build --rows 500000   # 500K most recent pairs
 ```
 
 Output lưu ở `data/processs/`.
@@ -36,13 +36,13 @@ Output lưu ở `data/processs/`.
 ## EDA
 
 ```bash
-python -m preprocess.eda
+python -m data.preprocess.eda --rows 500000
 ```
 
 Biểu đồ lưu ở `data/processs/eda/`:
 
 | Biểu đồ | Mô tả |
-|---|---|
-| ![behavior_distribution](../data/processs/eda/behavior_distribution.png) | Phân phối behaviors |
-| ![user_stats](../data/processs/eda/user_stats.png) | Interactions/user |
-| ![funnel](../data/processs/eda/funnel.png) | Conversion pv → fav → cart → buy |
+|---|---|---|
+| ![behavior_distribution](../processs/eda/behavior_distribution.png) | Phân phối behaviors |
+| ![user_stats](../processs/eda/user_stats.png) | Interactions/user |
+| ![funnel](../processs/eda/funnel.png) | Conversion pv → fav → cart → buy |

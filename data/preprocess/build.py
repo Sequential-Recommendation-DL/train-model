@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from utils import timer, ensure_dir
-from config import (
+from .utils import timer, ensure_dir
+from .config import (
     RAW_DATA,
     PROCESSED_DIR,
     COLUMNS,

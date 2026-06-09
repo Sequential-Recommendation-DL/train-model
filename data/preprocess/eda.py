@@ -6,8 +6,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from utils import timer, ensure_dir
-from config import RAW_DATA, COLUMNS, DTYPES, EDA_DIR, RANDOM_SEED
+from .utils import timer, ensure_dir
+from .config import RAW_DATA, COLUMNS, DTYPES, EDA_DIR, RANDOM_SEED
 
 plt.rcParams["figure.dpi"] = 120
 plt.rcParams["figure.figsize"] = (10, 5)
