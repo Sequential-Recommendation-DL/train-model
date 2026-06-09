@@ -64,7 +64,7 @@ class NCFDataset(Dataset):
 class BPRDataset(Dataset):
     """Pairwise dataset for BPR loss: each sample is (user, pos_item, neg_item)."""
 
-    def __init__(self, triplets: list[tuple[int, int, int]]) -> None:
+    def __init__(self, triplets: list[tuple[int, int, int]] | np.ndarray) -> None:
         arr = np.array(triplets, dtype=np.int64)
         self.users = torch.tensor(arr[:, 0], dtype=torch.long)
         self.pos_items = torch.tensor(arr[:, 1], dtype=torch.long)

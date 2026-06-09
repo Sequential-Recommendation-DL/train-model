@@ -36,20 +36,56 @@ def _hard_neg_loader(
                 user_emb[chunk].to(device), item_emb, chunk, user_pos, top_k
             )
             chunks.append(neg_idx.cpu())
-    all_neg = torch.cat(chunks, dim=0)  # [num_unique_users, top_k]
+    all_neg = torch.cat(chunks, dim=0).numpy()  # [num_unique_users, top_k]
 
-    user_positives = df.groupby("user_idx")["item_idx"].apply(list).to_dict()
-    triplets: list[tuple[int, int, int]] = []
-    for i, user_id in enumerate(unique_users.tolist()):
-        pos_items = user_positives.get(int(user_id), [])
-        neg_items = all_neg[i].tolist()
-        for pos in pos_items:
-            for neg in neg_items:
-                triplets.append((int(user_id), int(pos), int(neg)))
+    pair_users = df["user_idx"].to_numpy(dtype=np.int64)
+    pair_items = df["item_idx"].to_numpy(dtype=np.int64)
+
+    # Vectorized: map each pair's user_id → its row index in unique_users
+    uid_to_row = np.full(int(unique_users.max()) + 1, -1, dtype=np.int64)
+    uid_to_row[unique_users] = np.arange(len(unique_users), dtype=np.int64)
+    row_indices = uid_to_row[pair_users]          # [N]
+
+    neg_for_pairs = all_neg[row_indices]          # [N, top_k]
+    users_rep = np.repeat(pair_users, top_k)      # [N * top_k]
+    items_rep = np.repeat(pair_items, top_k)      # [N * top_k]
+    negs_flat = neg_for_pairs.reshape(-1)         # [N * top_k]
+
+    triplets = np.stack([users_rep, items_rep, negs_flat], axis=1)
 
     pin = device == "cuda"
     return DataLoader(  # type: ignore[type-arg]
         BPRDataset(triplets), batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=pin
+    )
+
+
+def _random_neg_loader(
+    df: pd.DataFrame,
+    user_pos: dict[int, set[int]],
+    num_items: int,
+    num_neg: int,
+    batch_size: int,
+    device: str,
+    seed: int = 42,
+) -> DataLoader:  # type: ignore[type-arg]
+    """Val loader with random negatives — gives a stable loss signal independent of model state."""
+    rng = np.random.default_rng(seed)
+    pair_users = df["user_idx"].to_numpy(dtype=np.int64)
+    pair_items = df["item_idx"].to_numpy(dtype=np.int64)
+    n = len(pair_users)
+
+    candidates = rng.integers(0, num_items, size=(n, num_neg * 4))
+    rows: list[tuple[int, int, int]] = []
+    for i in range(n):
+        u, p = int(pair_users[i]), int(pair_items[i])
+        pos_set = user_pos.get(u, set())
+        negs = [int(c) for c in candidates[i] if c not in pos_set][:num_neg]
+        for neg in negs:
+            rows.append((u, p, neg))
+
+    pin = device == "cuda"
+    return DataLoader(  # type: ignore[type-arg]
+        BPRDataset(rows), batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=pin
     )
 
 
@@ -67,6 +103,7 @@ def train(
     max_val_users: int = 5_000,
     num_neg: int = 4,
     batch_size: int = 512,
+    hard_neg_freq: int = 3,
 ) -> tuple[NeuMF, list[dict]]:  # type: ignore[type-arg]
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -80,9 +117,16 @@ def train(
         min(max_val_users, len(val_df)), random_state=42
     ).reset_index(drop=True)
 
+    # Val loader uses fixed random negatives (built once) so val_loss is a stable generalization signal.
+    # Hard-mined val negatives collapse to 0 as training converges — not informative.
+    val_loader = _random_neg_loader(val_cap, user_pos, num_items, 4, 1024, device)
+    train_loader: DataLoader | None = None  # type: ignore[type-arg]
+
     for epoch in range(1, epochs + 1):
-        train_loader = _hard_neg_loader(model, train_df, user_pos, num_items, num_neg, batch_size, device)
-        val_loader = _hard_neg_loader(model, val_cap, user_pos, num_items, 4, 1024, device)
+        # Refresh hard negatives on epoch 1 and every hard_neg_freq epochs thereafter
+        if (epoch - 1) % hard_neg_freq == 0:
+            train_loader = _hard_neg_loader(model, train_df, user_pos, num_items, num_neg, batch_size, device)
+        assert train_loader is not None
 
         model.train()
         total_loss = 0.0
