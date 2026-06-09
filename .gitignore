@@ -9,3 +9,4 @@ data/processed/
 .claude/
 AGENTS.md
 CLAUDE.md
+*.csv
