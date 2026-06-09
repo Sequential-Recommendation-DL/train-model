@@ -35,14 +35,15 @@ Output lưu ở `data/processs/`.
 
 ## EDA
 
+Phân tích từ output của build (train.csv + val.csv). Chạy sau khi build:
+
 ```bash
-python -m data.preprocess.eda --rows 500000
+python -m data.preprocess.eda
 ```
 
 Biểu đồ lưu ở `data/processs/eda/`:
 
 | Biểu đồ | Mô tả |
-|---|---|---|
-| ![behavior_distribution](../processs/eda/behavior_distribution.png) | Phân phối behaviors |
-| ![user_stats](../processs/eda/user_stats.png) | Interactions/user |
-| ![funnel](../processs/eda/funnel.png) | Conversion pv → fav → cart → buy |
+|---|---|
+| ![label_distribution](../processs/eda/label_distribution.png) | Label distribution train vs val |
+| ![user_item_stats](../processs/eda/user_item_stats.png) | Interactions/user + Interactions/item |
