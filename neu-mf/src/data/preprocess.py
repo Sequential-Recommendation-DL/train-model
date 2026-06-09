@@ -49,7 +49,7 @@ def clipRating(df):
     df["rating"] = df["rating"].clip(1, 5)
     return df
 
-def filterActiveUsers(df, min_interactions = 1):
+def filterActiveUsers(df, min_interactions = 5):
     print("\n - Filter Active User...")
     while True:
         prev = len(df)
