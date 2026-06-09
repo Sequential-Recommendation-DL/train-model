@@ -132,12 +132,14 @@ def run():
     print(f"\n{SEP}")
     print("  4. Train vs Val")
     print(SEP)
+    user_overlap = len(set(train["UserId"].unique()) & set(val["UserId"].unique()))
     print(f"\n  {'Metric':<25} {'Train':>12} {'Val':>12}")
     print(f"  {'-'*25} {'-'*12} {'-'*12}")
     print(f"  {'Rows':<25} {len(train):>12,} {len(val):>12,}")
     print(f"  {'Users':<25} {train['UserId'].nunique():>12,} {val['UserId'].nunique():>12,}")
     print(f"  {'Items':<25} {train['ItemId'].nunique():>12,} {val['ItemId'].nunique():>12,}")
     print(f"  {'Label mean':<25} {train['Label'].mean():>12.4f} {val['Label'].mean():>12.4f}")
+    print(f"  {'User overlap':<25} {user_overlap:>12,} ({user_overlap / val['UserId'].nunique() * 100:.1f}% of val)")
 
     # ── 5. Summary ──
     print(f"\n{SEP}")

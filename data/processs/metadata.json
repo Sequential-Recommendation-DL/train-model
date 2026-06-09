@@ -1,31 +1,34 @@
 {
-  "n_rows_take": 5000,
+  "n_rows_take": 250000,
   "n_rows_raw": 100150807,
-  "n_rows_clean": 5000,
-  "n_train": 4500,
-  "n_val": 500,
-  "n_users": 3858,
-  "n_items": 4917,
+  "n_rows_clean": 250000,
+  "n_train": 225089,
+  "n_val": 24911,
+  "n_users": 205881,
+  "n_items": 174241,
+  "n_train_users": 185292,
+  "n_val_users": 20589,
+  "min_item_interactions": 2,
+  "hour_bin_size": 4,
+  "sampling": "stratified_by_hour",
+  "split": "user_holdout",
   "label_raw_range": [
     1,
-    41
+    82
   ],
-  "label_norm": "2*sigmoid -> (0, 2)",
+  "label_norm": "2*tanh(x/5) -> (0, 2)",
   "label_percentiles": {
     "1%": 0.3948,
     "5%": 0.3948,
     "10%": 0.3948,
     "25%": 0.3948,
     "50%": 0.3948,
-    "75%": 1.0741,
-    "90%": 1.5232,
-    "95%": 1.7707,
-    "99%": 1.9781
+    "75%": 0.3948,
+    "90%": 1.0741,
+    "95%": 1.3281,
+    "99%": 1.8433
   },
-  "timestamp_range": [
-    1511568000,
-    1512345600
-  ],
+  "timestamp_span_hours": 209,
   "train_ratio": 0.9,
   "random_seed": 42,
   "columns": [
