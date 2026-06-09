@@ -123,7 +123,7 @@ def run(n_rows: int | None = None):
             "n_val": len(val),
             "n_users": n_users,
             "n_items": n_items,
-            "label_raw_range": [raw_min, raw_max],
+            "label_raw_range": [int(raw_min), int(raw_max)],
             "label_norm": "2*sigmoid -> (0, 2)",
             "label_percentiles": {f"{p}%": round(float(df["Label"].quantile(p / 100)), 4) for p in [1, 5, 10, 25, 50, 75, 90, 95, 99]},
             "timestamp_range": list(TIMESTAMP_RANGE),
