@@ -8,7 +8,7 @@ def saveCleanData(
     test_df,
     num_users,
     num_items,
-    PROCESSED_DIR = Path("data/processed")
+    PROCESSED_DIR = Path("../data/processed")
 ):
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     train_df.to_pickle(PROCESSED_DIR / f"{key}_train.pkl")

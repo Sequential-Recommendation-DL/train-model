@@ -4,7 +4,7 @@ from pathlib import Path
 
 def loadCacheData(
     key,
-    PROCESSED_DIR = Path("data/processed")
+    PROCESSED_DIR = Path("../data/processed")
 ):
     meta_file = PROCESSED_DIR / f"{key}_meta.json"
     if not meta_file.exists():

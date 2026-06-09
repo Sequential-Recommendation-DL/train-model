@@ -8,7 +8,7 @@ def load_csv(path):
     return pd.read_csv(path, dtype={"user_id": str, "parent_asin": str})
 
 
-def load_all(data_dir= "data/raw/explicit"):
+def load_all(data_dir= "../data/raw/explicit"):
     frames = []
     for category in categories:
         path = os.path.join(data_dir, category)
