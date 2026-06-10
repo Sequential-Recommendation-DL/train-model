@@ -56,7 +56,6 @@ Step 4:  Groupby     — Gom (user, item) → sum Label, max Timestamp
 Step 4b: Sample      — Stratified theo khung 4h (rải đều thời gian)
 Step 4c: Normalize   — 2 * tanh(Label_raw / 5) → (0, 2)
 Step 5:  Split       — Chia user: 90% train, 10% val (user-holdout)
-Step 5b: Filter item — Bỏ item có < 2 interactions trong **train** (fit trên train, áp dụng cho cả train+val)
 Step 6:  Save        — Ghi train.csv + val.csv
 Step 7:  Metadata    — Ghi metadata.json
 ```
@@ -79,21 +78,6 @@ df = pd.read_csv(RAW_DATA, names=COLUMNS, dtype=DTYPES)
 #### Step 2 — Clean
 - `drop_duplicates()`: Xoá dòng trùng lặp (thường rất ít)
 - `timestamp.between(TIMESTAMP_RANGE)`: Giữ các dòng trong khoảng thời gian cấu hình
-
-#### Step 5b — Filter rare items (fit on train only)
-```python
-train_item_counts = train["ItemId"].value_counts()
-valid_items = train_item_counts[train_item_counts >= MIN_ITEM_INTERACTIONS].index
-train = train[train["ItemId"].isin(valid_items)]
-val = val[val["ItemId"].isin(valid_items)]
-```
-Bỏ item chỉ xuất hiện < 2 lần trong **train** (`MIN_ITEM_INTERACTIONS = 2`).
-
-**Fit trên train, áp dụng cho cả train + val** — đây là cách đúng tránh data leak:
-- ❌ Cũ (Step 2b cũ): tính `value_counts()` trên **toàn bộ data** trước split → val góp phần quyết định item nào được giữ → leak
-- ✅ Mới (Step 5b): chỉ tính trên **train users** → frequency hoàn toàn từ train, val chỉ áp dụng theo
-
-**Lý do:** Model cần ≥ 2 interactions/item trong train mới học được embedding có ý nghĩa. Item chưa thấy trong train (val-only) tự động bị loại.
 
 #### Step 3 — Score behavior
 ```python
@@ -234,8 +218,7 @@ val = df[df["UserId"].isin(val_users)]
 
 | Vấn đề | Trước | Sau |
 |---|---|---|
-| **Item thưa** | 4.1M items, 70% chỉ 1 lần | 2.9M items (lọc item < 2) |
-| **Filter position** | Trước split (trên full data → leak) | Sau split (fit trên train → đúng) |
+| **Item thưa** | 4.1M items, 70% chỉ 1 lần | Giữ nguyên (không filter — 57% mất dữ liệu nếu lọc) |
 | **Khung giờ** | 8 tiếng cuối | 209 tiếng (9 ngày) |
 | **Train/val overlap** | User xuất hiện cả 2 | Zero overlap |
 | **Sampling** | Top-N timestamp | Stratified 4h-buckets |
@@ -295,7 +278,6 @@ Mỗi dòng = 1 cặp `(user, item)` duy nhất. Label là điểm tương tác 
   "n_items": 174241,
   "n_train_users": 185292,
   "n_val_users": 20589,
-  "min_item_interactions": 2,
   "hour_bin_size": 4,
   "sampling": "stratified_by_hour",
   "split": "user_holdout",
@@ -317,7 +299,6 @@ Mỗi dòng = 1 cặp `(user, item)` duy nhất. Label là điểm tương tác 
 | n_rows_clean | Số dòng output thực tế |
 | n_train / n_val | Số dòng train/val |
 | n_users / n_items | User/item unique |
-| min_item_interactions | Ngưỡng lọc item |
 | sampling | Phương pháp sampling |
 | split | Phương pháp split |
 | label_percentiles | Phân phối Label |
