@@ -48,11 +48,17 @@ class NeuMF(nn.Module):
         self._mlp_input_dim = mlp_dim * 2
         self._mlp_layers = mlp_layers
         self._gmf_dim = gmf_dim
+        self._dropout = dropout
         self._init_weights()
 
     def _init_weights(self) -> None:
         for emb in (self.gmf_user, self.gmf_item, self.mlp_user, self.mlp_item):
-            nn.init.normal_(emb.weight, std=0.01)
+            nn.init.normal_(emb.weight, std=0.05)
+        # Zero-init all linear biases so embedding signal is not drowned out by
+        # large random bias terms that are shared across all users/items.
+        for module in self.modules():
+            if isinstance(module, nn.Linear) and module.bias is not None:
+                nn.init.zeros_(module.bias)
 
     def param_summary(self) -> str:
         emb_params = sum(
