@@ -113,6 +113,7 @@ class ExplicitDataset(Dataset):
             item_map = {p: i for i, p in enumerate(sorted(df["ItemId"].unique()))}
         if category_map is None:
             category_map = {c: i for i, c in enumerate(sorted(df["CategoryId"].unique()))}
+            category_map["__unknown__"] = 0 
 
         self.user_map     = user_map
         self.item_map     = item_map

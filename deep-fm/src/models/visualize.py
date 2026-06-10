@@ -414,7 +414,7 @@ def plot_ranking_metrics(history: list[dict], metrics: dict, save_dir: str) -> N
     print(f"  → Đã lưu: {path}")
     
 def plot_roc_curve(
-    model, test_loader: DataLoader, device: str, save_dir: str
+    model, test_loader: DataLoader, device: str, save_dir: str,
 ) -> None:
     model.eval()
     all_scores, all_labels = [], []
@@ -424,22 +424,18 @@ def plot_roc_curve(
             X = X.to(device)
             logits = model(X).squeeze()
             all_scores.extend(torch.sigmoid(logits).cpu().tolist())
-            all_labels.extend(y.cpu().numpy())  # ← thêm .cpu()
+            all_labels.extend(y.cpu().numpy())
 
+    # Cân bằng pos/neg để ROC không bị lệch
     all_scores = np.array(all_scores)
     all_labels = np.array(all_labels)
+    pos_idx = np.where(all_labels == 1)[0]
+    neg_idx = np.where(all_labels == 0)[0]
+    neg_idx_sampled = np.random.choice(neg_idx, size=len(pos_idx), replace=False)
+    idx = np.concatenate([pos_idx, neg_idx_sampled])
 
-    # Lấy mẫu cân bằng để ROC không bị lệch
-    # pos_idx = np.where(all_labels == 1)[0]
-    # neg_idx = np.where(all_labels == 0)[0]
-    # neg_idx_sampled = np.random.choice(neg_idx, size=len(pos_idx), replace=False)
-    # idx = np.concatenate([pos_idx, neg_idx_sampled])
-    # fpr, tpr, _ = roc_curve(all_labels[idx], all_scores[idx])
-    # roc_auc = auc(fpr, tpr)
-    fpr, tpr, _ = roc_curve(all_labels, all_scores)
+    fpr, tpr, _ = roc_curve(all_labels[idx], all_scores[idx])
     roc_auc = auc(fpr, tpr)
-
-    
 
     fig, ax = plt.subplots(figsize=(7, 6))
     ax.plot(fpr, tpr, color="steelblue", lw=2, label=f"AUC = {roc_auc:.4f}")

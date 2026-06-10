@@ -158,8 +158,8 @@ from src.models.visualize import generate_results
 
 ACC_THRESHOLD = 0.75
 
-PROCESSED_TRAIN = "data/processs/train.csv"
-PROCESSED_VAL   = "data/processs/val.csv"
+PROCESSED_TRAIN = "../data/processs/train.csv"
+PROCESSED_VAL   = "../data/processs/val.csv"
 
 
 def negative_sample(df, train_data, num_neg: int = 4):
@@ -222,6 +222,8 @@ def run_pipeline(
     num_items = int(max(train_df["ItemId"].max(), val_df["ItemId"].max())) + 1
     print(f"      Train: {len(train_df):,}  Val: {len(val_df):,}")
     print(f"      Users: {num_users:,}  Items: {num_items:,}")
+    unseen_cats = set(val_df["CategoryId"].unique()) - set(train_df["CategoryId"].unique())
+    print(f"      Unseen categories in val: {len(unseen_cats):,}")
 
     # [2/5] Build dataset & dataloader
     print("\n[2/5] Building datasets...")
