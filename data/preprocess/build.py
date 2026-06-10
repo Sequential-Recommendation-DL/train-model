@@ -15,7 +15,6 @@ from .config import (
     VAL_PATH,
     METADATA_PATH,
     TIMESTAMP_RANGE,
-    MIN_ITEM_INTERACTIONS,
     HOUR_BIN_SIZE,
     TRAIN_RATIO,
     RANDOM_SEED,
@@ -125,21 +124,6 @@ def run(n_rows: int | None = None):
     print(f"     Val users:   {len(val_users):,} | rows: {len(val):,} ({len(val) / total * 100:.1f}%)")
     print(f"     Label mean: train={train['Label'].mean():.4f}  val={val['Label'].mean():.4f}")
 
-    # ── 5b. Filter rare items (based on TRAIN frequency only) ──
-    if MIN_ITEM_INTERACTIONS > 0:
-        with timer("5b. Filter rare items"):
-            train_item_counts = train["ItemId"].value_counts()
-            valid_items = train_item_counts[train_item_counts >= MIN_ITEM_INTERACTIONS].index
-            n_train_before = len(train)
-            n_val_before = len(val)
-            train = train[train["ItemId"].isin(valid_items)]
-            val = val[val["ItemId"].isin(valid_items)]
-        n_train_removed = n_train_before - len(train)
-        n_val_removed = n_val_before - len(val)
-        print(f"     Train items < {MIN_ITEM_INTERACTIONS} (in train): {n_train_removed:,} rows removed")
-        print(f"     Val items unseen in train: {n_val_removed:,} rows removed")
-        print(f"     Train: {len(train):,}  Val: {len(val):,}")
-
     # ── 6. Save ──
     with timer("6. Save"):
         train.to_csv(TRAIN_PATH, index=False)
@@ -159,7 +143,6 @@ def run(n_rows: int | None = None):
             "n_items": n_items,
             "n_train_users": int(train["UserId"].nunique()),
             "n_val_users": int(val["UserId"].nunique()),
-            "min_item_interactions": MIN_ITEM_INTERACTIONS,
             "hour_bin_size": HOUR_BIN_SIZE,
             "sampling": "stratified_by_hour",
             "split": "user_holdout",
