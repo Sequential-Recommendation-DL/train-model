@@ -49,17 +49,6 @@ def run(n_rows: int | None = None):
     print(f"     After dedup:        {n_before - n_dup:,} / {n_before:,}")
     print(f"     After timestamp:    {len(df):,} / {n_before:,} (range {t_min}..{t_max})")
 
-    # ── 2b. Filter rare items ──
-    if MIN_ITEM_INTERACTIONS > 0:
-        with timer("2b. Filter rare items"):
-            n_before = len(df)
-            item_counts = df["item_id"].value_counts()
-            valid_items = item_counts[item_counts >= MIN_ITEM_INTERACTIONS].index
-            df = df[df["item_id"].isin(valid_items)]
-        n_removed = n_before - len(df)
-        print(f"     Items < {MIN_ITEM_INTERACTIONS} interactions removed: {n_removed:,} rows ({n_removed / n_before * 100:.1f}%)")
-        print(f"     Kept {len(df):,} / {n_before:,} rows")
-
     # ── 3. Score ──
     with timer("3. Score behavior"):
         score_map = {"pv": 1, "fav": 2, "cart": 3, "buy": 4}
@@ -135,6 +124,21 @@ def run(n_rows: int | None = None):
     print(f"     Train users: {len(train_users):,} | rows: {len(train):,} ({len(train) / total * 100:.1f}%)")
     print(f"     Val users:   {len(val_users):,} | rows: {len(val):,} ({len(val) / total * 100:.1f}%)")
     print(f"     Label mean: train={train['Label'].mean():.4f}  val={val['Label'].mean():.4f}")
+
+    # ── 5b. Filter rare items (based on TRAIN frequency only) ──
+    if MIN_ITEM_INTERACTIONS > 0:
+        with timer("5b. Filter rare items"):
+            train_item_counts = train["ItemId"].value_counts()
+            valid_items = train_item_counts[train_item_counts >= MIN_ITEM_INTERACTIONS].index
+            n_train_before = len(train)
+            n_val_before = len(val)
+            train = train[train["ItemId"].isin(valid_items)]
+            val = val[val["ItemId"].isin(valid_items)]
+        n_train_removed = n_train_before - len(train)
+        n_val_removed = n_val_before - len(val)
+        print(f"     Train items < {MIN_ITEM_INTERACTIONS} (in train): {n_train_removed:,} rows removed")
+        print(f"     Val items unseen in train: {n_val_removed:,} rows removed")
+        print(f"     Train: {len(train):,}  Val: {len(val):,}")
 
     # ── 6. Save ──
     with timer("6. Save"):

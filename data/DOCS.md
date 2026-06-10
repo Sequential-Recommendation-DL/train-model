@@ -51,12 +51,12 @@ data/
 ```
 Step 1:  Load        — Đọc 100M dòng từ data/raw/UserBehavior.csv
 Step 2:  Clean       — Xoá duplicate + lọc timestamp
-Step 2b: Filter item — Bỏ item có < 2 interactions
 Step 3:  Score       — Gán điểm behavior (pv=1, fav=2, cart=3, buy=4)
 Step 4:  Groupby     — Gom (user, item) → sum Label, max Timestamp
 Step 4b: Sample      — Stratified theo khung 4h (rải đều thời gian)
 Step 4c: Normalize   — 2 * tanh(Label_raw / 5) → (0, 2)
 Step 5:  Split       — Chia user: 90% train, 10% val (user-holdout)
+Step 5b: Filter item — Bỏ item có < 2 interactions trong **train** (fit trên train, áp dụng cho cả train+val)
 Step 6:  Save        — Ghi train.csv + val.csv
 Step 7:  Metadata    — Ghi metadata.json
 ```
@@ -80,15 +80,20 @@ df = pd.read_csv(RAW_DATA, names=COLUMNS, dtype=DTYPES)
 - `drop_duplicates()`: Xoá dòng trùng lặp (thường rất ít)
 - `timestamp.between(TIMESTAMP_RANGE)`: Giữ các dòng trong khoảng thời gian cấu hình
 
-#### Step 2b — Filter rare items
+#### Step 5b — Filter rare items (fit on train only)
 ```python
-item_counts = df["item_id"].value_counts()
-valid_items = item_counts[item_counts >= MIN_ITEM_INTERACTIONS].index
-df = df[df["item_id"].isin(valid_items)]
+train_item_counts = train["ItemId"].value_counts()
+valid_items = train_item_counts[train_item_counts >= MIN_ITEM_INTERACTIONS].index
+train = train[train["ItemId"].isin(valid_items)]
+val = val[val["ItemId"].isin(valid_items)]
 ```
-Bỏ các item chỉ xuất hiện 1 lần (`MIN_ITEM_INTERACTIONS = 2`).
-- **Lý do:** Model cần ít nhất 2 interactions/item mới học được embedding có ý nghĩa
-- **Tác dụng:** Giảm item từ 4.1M → 2.9M, bỏ 1.2% dòng
+Bỏ item chỉ xuất hiện < 2 lần trong **train** (`MIN_ITEM_INTERACTIONS = 2`).
+
+**Fit trên train, áp dụng cho cả train + val** — đây là cách đúng tránh data leak:
+- ❌ Cũ (Step 2b cũ): tính `value_counts()` trên **toàn bộ data** trước split → val góp phần quyết định item nào được giữ → leak
+- ✅ Mới (Step 5b): chỉ tính trên **train users** → frequency hoàn toàn từ train, val chỉ áp dụng theo
+
+**Lý do:** Model cần ≥ 2 interactions/item trong train mới học được embedding có ý nghĩa. Item chưa thấy trong train (val-only) tự động bị loại.
 
 #### Step 3 — Score behavior
 ```python
@@ -230,6 +235,7 @@ val = df[df["UserId"].isin(val_users)]
 | Vấn đề | Trước | Sau |
 |---|---|---|
 | **Item thưa** | 4.1M items, 70% chỉ 1 lần | 2.9M items (lọc item < 2) |
+| **Filter position** | Trước split (trên full data → leak) | Sau split (fit trên train → đúng) |
 | **Khung giờ** | 8 tiếng cuối | 209 tiếng (9 ngày) |
 | **Train/val overlap** | User xuất hiện cả 2 | Zero overlap |
 | **Sampling** | Top-N timestamp | Stratified 4h-buckets |
