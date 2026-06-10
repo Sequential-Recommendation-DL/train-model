@@ -2,7 +2,7 @@
 
 ## 1. Tổng quan
 
-Project xây dựng pipeline xử lý dữ liệu hành vi người dùng (UserBehavior từ Tmall/Alibaba) thành bộ dữ liệu train/val cho các mô hình recommendation (DeepFM, NeuMF).
+Project xây dựng pipeline xử lý dữ liệu hành vi người dùng (UserBehavior từ Taobao) thành bộ dữ liệu train/val cho các mô hình recommendation (DeepFM, NeuMF).
 
 **Luồng dữ liệu tổng quát:**
 
