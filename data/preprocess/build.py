@@ -30,14 +30,14 @@ def run(n_rows: int | None = None):
     print("  BUILD PIPELINE")
     print(SEP)
 
-    # ── 1. Load ──
+    # 1. Load 
     with timer("1. Load"):
         df = pd.read_csv(RAW_DATA, names=COLUMNS, dtype=DTYPES)
     n_loaded = len(df)
     print(f"     Rows: {n_loaded:,}")
     print(f"     Columns: {list(df.columns)}")
 
-    # ── 2. Clean ──
+    # 2. Clean 
     with timer("2. Clean"):
         n_before = len(df)
         n_dup = df.duplicated().sum()
@@ -48,7 +48,7 @@ def run(n_rows: int | None = None):
     print(f"     After dedup:        {n_before - n_dup:,} / {n_before:,}")
     print(f"     After timestamp:    {len(df):,} / {n_before:,} (range {t_min}..{t_max})")
 
-    # ── 3. Score ──
+    # 3. Score 
     with timer("3. Score behavior"):
         score_map = {"pv": 1, "fav": 2, "cart": 3, "buy": 4}
         df["label"] = df["behavior"].map(score_map).astype("int8")
@@ -58,7 +58,7 @@ def run(n_rows: int | None = None):
         cnt = dist.get(score, 0)
         print(f"       {beh:5} ({score}) : {cnt:>10,} ({cnt / len(df) * 100:5.2f}%)")
 
-    # ── 4. Groupby ──
+    # 4. Groupby 
     with timer("4. Group by (user, item)"):
         n_before_gb = len(df)
         g = df.groupby(["user_id", "item_id"], as_index=False)
@@ -71,7 +71,7 @@ def run(n_rows: int | None = None):
     print(f"     Users: {n_users:,}  Items: {n_items:,}  Sparsity: {sparsity:.4%}")
     print(f"     {n_before_gb:,} rows \u2192 {len(df):,} rows ({compression:.1f}% reduction)")
 
-    # ── 4b. Stratified sample by hour ──
+    # 4b. Stratified sample by hour 
     if n_rows is not None and n_rows < len(df):
         with timer("4b. Stratified sample by hour"):
             df["_hour_bin"] = df["Timestamp"] // (HOUR_BIN_SIZE * 3600)
@@ -93,7 +93,7 @@ def run(n_rows: int | None = None):
         n_users = df["UserId"].nunique()
         n_items = df["ItemId"].nunique()
 
-    # ── 4c. Normalize Label to (0, 2) ──
+    # 4c. Normalize Label to (0, 2) 
     with timer("4c. Normalize Label to (0, 2)"):
         raw_min = df["Label"].min()
         raw_max = df["Label"].max()
@@ -109,7 +109,7 @@ def run(n_rows: int | None = None):
     for lbl, cnt in binned.items():
         print(f"       {lbl:>9}: {cnt:>8,} ({cnt / len(df) * 100:5.2f}%)")
 
-    # ── 5. Split by user ──
+    # 5. Split by user 
     with timer("5. Split by user"):
         unique_users = pd.Series(df["UserId"].unique())
         train_users, val_users = train_test_split(
@@ -124,14 +124,14 @@ def run(n_rows: int | None = None):
     print(f"     Val users:   {len(val_users):,} | rows: {len(val):,} ({len(val) / total * 100:.1f}%)")
     print(f"     Label mean: train={train['Label'].mean():.4f}  val={val['Label'].mean():.4f}")
 
-    # ── 6. Save ──
+    # 6. Save 
     with timer("6. Save"):
         train.to_csv(TRAIN_PATH, index=False)
         val.to_csv(VAL_PATH, index=False)
     print(f"     Train: {TRAIN_PATH} ({os.path.getsize(TRAIN_PATH) / 1024 / 1024:.1f} MB)")
     print(f"     Val:   {VAL_PATH} ({os.path.getsize(VAL_PATH) / 1024 / 1024:.1f} MB)")
 
-    # ── 7. Metadata ──
+    # 7. Metadata 
     with timer("7. Metadata"):
         metadata = {
             "n_rows_take": n_rows,
