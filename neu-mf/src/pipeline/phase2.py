@@ -1,18 +1,11 @@
-from src.data.preprocess import encode, split
-from src.utils.save_clean_data import saveCleanData
+import pandas as pd
 
-def encodingAndSplitting(df, cache_key):
-    print("\n[2/6] Encoding & splitting...")
-    df, num_users, num_items = encode(df)
-    print(f" - Users: {num_users:,}  Items: {num_items:,}")
-    train_df, val_df, test_df = split(df)
-    print(f" - Train: {len(train_df):,}, Val: {len(val_df):,}, Test: {len(test_df):,}")
-    saveCleanData(
-        cache_key,
-        train_df,
-        val_df,
-        test_df,
-        num_users,
-        num_items
-    );
-    return train_df, val_df, test_df, num_users, num_items
+from src.features.build_features import build_user_pos
+
+
+def prepare_for_training(train_df, val_df=None):
+    print("\n [2/6] Building user interaction history...")
+    combined = pd.concat([train_df, val_df], ignore_index=True) if val_df is not None else train_df
+    user_pos = build_user_pos(combined)
+    print(f"       Unique users with interactions: {len(user_pos):,}")
+    return user_pos

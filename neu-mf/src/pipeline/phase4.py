@@ -2,17 +2,20 @@ from src.models.neumf import NeuMF
 from src.models.train import train
 
 
-def train_neumf(device, train_df, val_df, user_pos, num_users, num_items):
-    print("\n [4/6] Training NeuMF...")
-    model = NeuMF(num_users, num_items)
+def train_neumf(device, train_df, val_df, num_users, num_items, cfg):
+    print("\n [2/4] Training NeuMF...")
+    m = cfg["model"]
+    t = cfg["training"]
+
+    model = NeuMF(num_users, num_items, gmf_dim=m["gmf_dim"], mlp_dim=m["mlp_dim"], dropout=m["dropout"])
     print(model.param_summary())
 
-    model, history = train(model, train_df, val_df, user_pos, num_items, device=device)
-
-    best = max(history, key=lambda h: h["HR@10"])
-    print(
-        f"      Best epoch {best['epoch']:02d}: "
-        f"Hit Rate at 10 = {best['HR@10']:.4f}  "
-        f"NDCG at 10 = {best['NDCG@10']:.4f}"
+    model, history = train(
+        model, train_df, val_df, device=device,
+        epochs=t["epochs"], lr=t["lr"],
+        weight_decay=t["weight_decay"], patience=t["patience"], batch_size=t["batch_size"],
     )
+
+    best = min(history, key=lambda h: h["val_loss"])
+    print(f"      Best epoch {best['epoch']:02d}: val_loss = {best['val_loss']:.4f}")
     return model, history
