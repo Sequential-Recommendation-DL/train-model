@@ -62,9 +62,16 @@ def run(n_rows: int | None = None):
     # ── 4. Groupby ──
     with timer("4. Group by (user, item)"):
         n_before_gb = len(df)
+        # g = df.groupby(["user_id", "item_id"], as_index=False)
+        # df = g.agg(Timestamp=("timestamp", "max"), Label=("label", "sum"))
+        # df.columns = ["UserId", "ItemId", "Timestamp", "Label"]
         g = df.groupby(["user_id", "item_id"], as_index=False)
-        df = g.agg(Timestamp=("timestamp", "max"), Label=("label", "sum"))
-        df.columns = ["UserId", "ItemId", "Timestamp", "Label"]
+        df = g.agg(
+            Timestamp=("timestamp", "max"),
+            Label=("label", "sum"),
+            CategoryId=("category_id", "first"),
+        )
+        df.columns = ["UserId", "ItemId", "Timestamp", "Label", "CategoryId"]
     compression = (1 - len(df) / n_before_gb) * 100
     n_users = df["UserId"].nunique()
     n_items = df["ItemId"].nunique()
@@ -169,7 +176,8 @@ def run(n_rows: int | None = None):
             "timestamp_span_hours": int((df["Timestamp"].max() - df["Timestamp"].min()) / 3600),
             "train_ratio": TRAIN_RATIO,
             "random_seed": RANDOM_SEED,
-            "columns": ["UserId", "ItemId", "Timestamp", "Label"],
+            # "columns": ["UserId", "ItemId", "Timestamp", "Label"],
+            "columns": ["UserId", "ItemId", "Timestamp", "Label", "CategoryId"],
         }
         with open(METADATA_PATH, "w") as f:
             json.dump(metadata, f, indent=2)

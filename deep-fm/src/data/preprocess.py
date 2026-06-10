@@ -47,14 +47,15 @@
 #     df["user_idx"] = user_codes
 #     df["item_idx"] = item_codes
 
-#     # [THÊM MỚI] encode brand và main_category thành số nguyên
-#     if "brand" in df.columns:
-#         df["brand"] = df["brand"].fillna("unknown")
-#         brand_codes, _ = pd.factorize(df["brand"])
-#         df["brand_idx"] = brand_codes
-#     else:
-#         df["brand_idx"] = 0
+#     # encode brand
+#     # if "brand" in df.columns:
+#     #     df["brand"] = df["brand"].fillna("unknown")
+#     #     brand_codes, _ = pd.factorize(df["brand"])
+#     #     df["brand_idx"] = brand_codes
+#     # else:
+#     #     df["brand_idx"] = 0
 
+#     # encode main_category
 #     if "main_category" in df.columns:
 #         df["main_category"] = df["main_category"].fillna("unknown")
 #         cat_codes, _ = pd.factorize(df["main_category"])
@@ -62,7 +63,7 @@
 #     else:
 #         df["category_idx"] = 0
 
-#     # [THÊM MỚI] bucketize price thành 10 khoảng
+#     # bucketize price thành 10 khoảng
 #     if "price" in df.columns:
 #         df["price"] = pd.to_numeric(df["price"], errors="coerce").fillna(-1)
 #         df["price_idx"] = pd.qcut(
@@ -74,8 +75,28 @@
 #     else:
 #         df["price_idx"] = 0
 
-#     # label: rating >= 4 → 1 (thích), < 4 → 0 (không thích)
+#     # [THÊM MỚI] tách timestamp thành hour và dayofweek
+#     if "timestamp" in df.columns:
+#         dt = pd.to_datetime(df["timestamp"], unit="ms", errors="coerce")
+#         # fallback nếu timestamp tính bằng giây thay vì mili giây
+#         if dt.isnull().mean() > 0.5:
+#             dt = pd.to_datetime(df["timestamp"], unit="s", errors="coerce")
+
+#         df["hour_idx"]      = dt.dt.hour.fillna(0).astype(int)       # 0-23
+#         df["dayofweek_idx"] = dt.dt.dayofweek.fillna(0).astype(int)  # 0=Mon, 6=Sun
+#     else:
+#         df["hour_idx"]      = 0
+#         df["dayofweek_idx"] = 0
+
+#     # label cho implicit feedback (dùng trong ExplicitDataset nếu cần)
 #     df["label"] = (df["rating"] >= 4).astype(int)
+#     print("\n===== ENCODE DEBUG =====")
+#     # print("Brand idx unique:", df["brand_idx"].nunique())
+#     print("Category idx unique:", df["category_idx"].nunique())
+#     print("Price idx unique:", df["price_idx"].nunique())
+#     print("Hour idx unique:", df["hour_idx"].nunique())
+#     print("Day idx unique:", df["dayofweek_idx"].nunique())
+#     print("========================\n")
 
 #     num_users = int(df["user_idx"].max()) + 1
 #     num_items = int(df["item_idx"].max()) + 1
@@ -89,103 +110,91 @@
 #     val   = cast(pd.DataFrame, df[df["_rank"] == 1].drop(columns="_rank").reset_index(drop=True))
 #     train = cast(pd.DataFrame, df[df["_rank"] >= 2].drop(columns="_rank").reset_index(drop=True))
 #     return train, val, test
+
 import warnings
 from typing import cast
+import numpy as np
 import pandas as pd
 
 
+# ── Taobao behavior → score ──────────────────────────────────────────────────
+BEHAVIOR_SCORE = {"pv": 1, "fav": 2, "cart": 3, "buy": 4}
+
+
 def validate(df: pd.DataFrame) -> pd.DataFrame:
-    missing = df[["user_id", "parent_asin", "rating"]].isnull().sum()
+    missing = df[["user_id", "item_id", "behavior"]].isnull().sum()
     if missing.any():
         warnings.warn(f"Missing values: {missing[missing > 0].to_dict()}")
-    dups = int(df.duplicated(["user_id", "parent_asin"]).sum())
+
+    dups = int(df.duplicated(["user_id", "item_id"]).sum())
     if dups > 0:
         warnings.warn(f"{dups:,} duplicate (user, item) pairs")
-    invalid = int((~df["rating"].between(1, 5)).sum())
+
+    invalid = (~df["behavior"].isin(BEHAVIOR_SCORE)).sum()
     if invalid > 0:
-        warnings.warn(f"{invalid:,} ratings outside [1, 5]")
+        warnings.warn(f"{invalid:,} unknown behavior values")
+
     null_ts = int(df["timestamp"].isnull().sum())
     if null_ts > 0:
         warnings.warn(f"{null_ts:,} null timestamps")
+
     return df
 
 
 def clean(df: pd.DataFrame, min_interactions: int = 5) -> pd.DataFrame:
-    df = cast(pd.DataFrame, df.dropna(subset=["user_id", "parent_asin", "rating"]))
-    df = cast(pd.DataFrame, df[df["rating"].between(1, 5)])
+    # Bỏ dòng thiếu trường quan trọng
+    df = cast(pd.DataFrame, df.dropna(subset=["user_id", "item_id", "behavior"]))
+
+    # Chỉ giữ behavior hợp lệ
+    df = cast(pd.DataFrame, df[df["behavior"].isin(BEHAVIOR_SCORE)])
+
+    # Giữ interaction mới nhất nếu trùng (user, item)
     df = cast(
         pd.DataFrame,
-        df.sort_values("timestamp").drop_duplicates(["user_id", "parent_asin"], keep="last"),
+        df.sort_values("timestamp").drop_duplicates(["user_id", "item_id"], keep="last"),
     )
+
+    # Lọc cold-start: user và item phải có >= min_interactions
     while True:
         prev = len(df)
-        u_counts = df.groupby("user_id")["parent_asin"].transform("count")
+        u_counts = df.groupby("user_id")["item_id"].transform("count")
         df = cast(pd.DataFrame, df[u_counts >= min_interactions])
-        i_counts = df.groupby("parent_asin")["user_id"].transform("count")
+        i_counts = df.groupby("item_id")["user_id"].transform("count")
         df = cast(pd.DataFrame, df[i_counts >= min_interactions])
         if len(df) == prev:
             break
+
     return df.reset_index(drop=True)
 
 
 def encode(df: pd.DataFrame) -> tuple[pd.DataFrame, int, int]:
     df = df.copy()
 
-    # encode user và item
+    # ── User & Item ──────────────────────────────────────────────────────────
     user_codes, _ = pd.factorize(df["user_id"])
-    item_codes, _ = pd.factorize(df["parent_asin"])
+    item_codes, _ = pd.factorize(df["item_id"])
     df["user_idx"] = user_codes
     df["item_idx"] = item_codes
 
-    # encode brand
-    # if "brand" in df.columns:
-    #     df["brand"] = df["brand"].fillna("unknown")
-    #     brand_codes, _ = pd.factorize(df["brand"])
-    #     df["brand_idx"] = brand_codes
-    # else:
-    #     df["brand_idx"] = 0
+    # ── Category (có sẵn trong Taobao) ──────────────────────────────────────
+    cat_codes, _ = pd.factorize(df["category_id"])
+    df["category_idx"] = cat_codes
 
-    # encode main_category
-    if "main_category" in df.columns:
-        df["main_category"] = df["main_category"].fillna("unknown")
-        cat_codes, _ = pd.factorize(df["main_category"])
-        df["category_idx"] = cat_codes
-    else:
-        df["category_idx"] = 0
+    # ── Hour & DayOfWeek từ timestamp (unix seconds) ─────────────────────────
+    dt = pd.to_datetime(df["timestamp"], unit="s", errors="coerce")
+    df["hour_idx"]      = dt.dt.hour.fillna(0).astype(int)       # 0-23
+    df["dayofweek_idx"] = dt.dt.dayofweek.fillna(0).astype(int)  # 0=Mon, 6=Sun
 
-    # bucketize price thành 10 khoảng
-    if "price" in df.columns:
-        df["price"] = pd.to_numeric(df["price"], errors="coerce").fillna(-1)
-        df["price_idx"] = pd.qcut(
-            df["price"].clip(lower=0),
-            q=10,
-            labels=False,
-            duplicates="drop"
-        ).fillna(0).astype(int)
-    else:
-        df["price_idx"] = 0
+    # ── Label: behavior score normalize bằng 2*tanh(x/5) ────────────────────
+    # Kết quả nằm trong (0, 2), dùng cho regression hoặc binarize ở pipeline
+    raw_score = df["behavior"].map(BEHAVIOR_SCORE).astype(float)
+    df["label"] = (2.0 * np.tanh(raw_score / 5.0)).astype(np.float32)
 
-    # [THÊM MỚI] tách timestamp thành hour và dayofweek
-    if "timestamp" in df.columns:
-        dt = pd.to_datetime(df["timestamp"], unit="ms", errors="coerce")
-        # fallback nếu timestamp tính bằng giây thay vì mili giây
-        if dt.isnull().mean() > 0.5:
-            dt = pd.to_datetime(df["timestamp"], unit="s", errors="coerce")
-
-        df["hour_idx"]      = dt.dt.hour.fillna(0).astype(int)       # 0-23
-        df["dayofweek_idx"] = dt.dt.dayofweek.fillna(0).astype(int)  # 0=Mon, 6=Sun
-    else:
-        df["hour_idx"]      = 0
-        df["dayofweek_idx"] = 0
-
-    # label cho implicit feedback (dùng trong ExplicitDataset nếu cần)
-    df["label"] = (df["rating"] >= 4).astype(int)
     print("\n===== ENCODE DEBUG =====")
-    # print("Brand idx unique:", df["brand_idx"].nunique())
     print("Category idx unique:", df["category_idx"].nunique())
-    print("Price idx unique:", df["price_idx"].nunique())
-    print("Hour idx unique:", df["hour_idx"].nunique())
-    print("Day idx unique:", df["dayofweek_idx"].nunique())
+    print("Hour idx unique:    ", df["hour_idx"].nunique())
+    print("Day idx unique:     ", df["dayofweek_idx"].nunique())
+    print("Label range:        ", df["label"].min(), "→", df["label"].max())
     print("========================\n")
 
     num_users = int(df["user_idx"].max()) + 1
@@ -194,9 +203,17 @@ def encode(df: pd.DataFrame) -> tuple[pd.DataFrame, int, int]:
 
 
 def split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Leave-one-out split theo timestamp:
+      - test  = interaction mới nhất của mỗi user
+      - val   = interaction mới nhì
+      - train = còn lại
+    """
     df = df.sort_values(["user_idx", "timestamp"]).copy()
     df["_rank"] = df.groupby("user_idx").cumcount(ascending=False)
+
     test  = cast(pd.DataFrame, df[df["_rank"] == 0].drop(columns="_rank").reset_index(drop=True))
     val   = cast(pd.DataFrame, df[df["_rank"] == 1].drop(columns="_rank").reset_index(drop=True))
     train = cast(pd.DataFrame, df[df["_rank"] >= 2].drop(columns="_rank").reset_index(drop=True))
+
     return train, val, test
