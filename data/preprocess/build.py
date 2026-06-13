@@ -3,7 +3,6 @@ import json
 import os
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
 
 from .utils import timer, ensure_dir
 from .config import (
@@ -99,41 +98,43 @@ def run(n_rows: int | None = None):
         n_users = df["UserId"].nunique()
         n_items = df["ItemId"].nunique()
 
-    # 4c. Normalize Label to (0, 2)
-    with timer("4c. Normalize Label to (0, 2)"):
+    # 4c. Normalize Label to (0, 1)
+    with timer("4c. Normalize Label to (0, 1)"):
         raw_min = df["Label"].min()
         raw_max = df["Label"].max()
-        df["Label"] = 2.0 * \
-            np.tanh(df["Label"].to_numpy(dtype=np.float64) / 5.0)
-        df["Label"] = df["Label"].astype(np.float32)
+        df["Label"] = np.tanh(
+            df["Label"].to_numpy(dtype=np.float64) / 5.0
+        ).astype(np.float32)
     print(f"     Raw range: [{raw_min}, {
-          raw_max}] \u2192 (0, 2) via 2*tanh(x/5)")
+          raw_max}] \u2192 (0, 1) via tanh(x/5)")
 
     # Label distribution
     print(f"\n     Label distribution (binned):")
-    bins = [0, 0.5, 1.0, 1.25, 1.5, 1.75, 2.0]
+    bins = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     labels_bin = [f"{bins[i]:.2f}-{bins[i+1]:.2f}" for i in range(len(bins) - 1)]
     binned = pd.cut(df["Label"], bins=bins, labels=labels_bin).value_counts()
     for lbl, cnt in binned.items():
-        print(f"       {lbl:>9}: {cnt:>8,} ({cnt / len(df) * 100:5.2f}%)")
+        if cnt > 0:
+            print(f"       {lbl:>9}: {cnt:>8,} ({cnt / len(df) * 100:5.2f}%)")
 
-    # 5. Split by user
-    with timer("5. Split by user"):
-        unique_users = pd.Series(df["UserId"].unique())
-        train_users, val_users = train_test_split(
-            unique_users,
-            test_size=1 - TRAIN_RATIO,
-            random_state=RANDOM_SEED,
-        )
-        train = df[df["UserId"].isin(train_users)].copy()
-        val = df[df["UserId"].isin(val_users)].copy()
+    # 5. Temporal split (quá khứ → train, tương lai → val)
+    with timer("5. Temporal split"):
+        df = df.sort_values("Timestamp")
+        cutoff = df["Timestamp"].quantile(TRAIN_RATIO)
+        train = df[df["Timestamp"] <= cutoff].copy()
+        val = df[df["Timestamp"] > cutoff].copy()
+
     total = len(train) + len(val)
-    print(f"     Train users: {len(train_users):,} | rows: {
-        len(train):,} ({len(train) / total * 100:.1f}%)")
-    print(f"     Val users:   {len(val_users):,} | rows: {
-        len(val):,} ({len(val) / total * 100:.1f}%)")
-    print(f"     Label mean: train={train['Label'].mean():.4f}  val={
-        val['Label'].mean():.4f}")
+    user_overlap = set(train["UserId"].unique()) & set(val["UserId"].unique())
+    print(f"     Cutoff timestamp: {int(cutoff)}")
+    print(f"     Train: {len(train):,} rows ({len(train) / total * 100:.1f}%)")
+    print(f"     Val:   {len(val):,} rows ({len(val) / total * 100:.1f}%)")
+    print(f"     Train users: {train['UserId'].nunique():,}"
+          f" | Val users: {val['UserId'].nunique():,}")
+    print(f"     User overlap: {len(user_overlap):,}"
+          f" ({len(user_overlap) / val['UserId'].nunique() * 100:.1f}% of val)")
+    print(f"     Label mean: train={train['Label'].mean():.4f}"
+          f"  val={val['Label'].mean():.4f}")
 
     # 6. Save
     with timer("6. Save"):
@@ -158,9 +159,10 @@ def run(n_rows: int | None = None):
             "n_val_users": int(val["UserId"].nunique()),
             "hour_bin_size": HOUR_BIN_SIZE,
             "sampling": "stratified_by_hour",
-            "split": "user_holdout",
+            "split": "temporal",
+            "train_ratio": TRAIN_RATIO,
             "label_raw_range": [int(raw_min), int(raw_max)],
-            "label_norm": "2*tanh(x/5) -> (0, 2)",
+            "label_norm": "tanh(x/5) -> (0, 1)",
             "label_percentiles": {
                 f"{p}%": round(float(df["Label"].quantile(p / 100)), 4)
                 for p in [1, 5, 10, 25, 50, 75, 90, 95, 99]
@@ -168,7 +170,6 @@ def run(n_rows: int | None = None):
             "timestamp_span_hours": int(
                 (df["Timestamp"].max() - df["Timestamp"].min()) / 3600
             ),
-            "train_ratio": TRAIN_RATIO,
             "random_seed": RANDOM_SEED,
             "columns": ["UserId", "ItemId", "Timestamp", "Label"],
         }
