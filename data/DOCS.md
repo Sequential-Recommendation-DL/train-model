@@ -2,7 +2,7 @@
 
 ## 1. Tổng quan
 
-Project xây dựng pipeline xử lý dữ liệu hành vi người dùng (UserBehavior từ Taobao) thành bộ dữ liệu train/val cho các mô hình recommendation (DeepFM, NeuMF, ...).
+Project xây dựng pipeline xử lý dữ liệu hành vi người dùng (UserBehavior từ Taobao) thành bộ dữ liệu train/val cho các mô hình recommendation (DeepFM, NeuMF).
 
 **Luồng dữ liệu tổng quát:**
 
@@ -28,13 +28,13 @@ data/
 │   ├── config.py            # Cấu hình (paths, params)
 │   ├── build.py             # Pipeline chính
 │   ├── eda.py               # EDA (đọc từ output của build)
-│   ├── charts.py            # Vẽ biểu đồ so sánh normalize
+│   ├── charts.py            # Vẽ biểu đồ so sánh (sigmoid vs tanh)
 │   ├── load_data.py          # Download từ Kaggle
 │   ├── utils.py             # Helper (timer, ensure_dir)
 │   └── README.md
 └── processs/                # Output của build
-    ├── train.csv            # Training set (quá khứ)
-    ├── val.csv              # Validation set (tương lai)
+    ├── train.csv            # Training set
+    ├── val.csv              # Validation set
     ├── metadata.json        # Thông số của lần build gần nhất
     └── eda/                 # Biểu đồ EDA
         ├── label_distribution.png
@@ -54,8 +54,9 @@ Step 2:  Clean       — Xoá duplicate + lọc timestamp
 Step 3:  Score       — Gán điểm behavior (pv=1, fav=2, cart=3, buy=4)
 Step 4:  Groupby     — Gom (user, item) → sum Label, max Timestamp
 Step 4b: Sample      — Stratified theo khung 4h (rải đều thời gian)
-Step 4c: Normalize   — tanh(Label_raw / 5) → (0, 1)
-Step 5:  Split       — Temporal 90/10 (quá khứ → train, tương lai → val)
+Step 4c: K-core      — Lọc user/item có ≥ k interactions (k=5)
+Step 4d: Normalize   — tanh(Label_raw / 5) → (0, 1)
+Step 5:  Split       — Leave-last-out (interaction cuối → val)
 Step 6:  Save        — Ghi train.csv + val.csv
 Step 7:  Metadata    — Ghi metadata.json
 ```
@@ -131,22 +132,46 @@ Thay vì lấy top-N dòng gần nhất (chỉ được 8 tiếng cuối), ta **
 
 Chỉ chạy khi `--rows` được truyền vào. Nếu không, giữ toàn bộ dữ liệu.
 
-#### Step 4c — Normalize Label to (0, 1)
+#### Step 4c — K-core filtering (mới)
+```python
+def _k_core_filter(df, k):
+    while len(df) != prev_len:
+        # Lọc user có < k interactions
+        # Lọc item có < k interactions
+        # Lặp cho đến khi converge
+```
+
+Giải quyết vấn đề **dữ liệu quá thưa** sau sampling:
+- Đảm bảo mỗi user có ≥ k interactions → embedding có đủ signal
+- Đảm bảo mỗi item có ≥ k users → item embedding có ý nghĩa
+- Lặp vì xoá user/item thưa có thể làm user/item khác trở nên thưa
+
+**Tại sao cần k-core?**
+
+Từ EDA cũ (trước k-core):
+
+![user_item_stats](processs/eda/user_item_stats.png)
+
+- Đa số user chỉ tương tác với **1 item** → embedding không học được gì
+- Đa số item chỉ được **1 user** tương tác → item embedding vô nghĩa
+- Sparsity: **99.997%** — ma trận cực thưa
+
+K-core filtering loại bỏ các user/item quá thưa, giúp model học embedding hiệu quả hơn.
+
+#### Step 4d — Normalize Label to (0, 1)
 ```python
 df["Label"] = np.tanh(df["Label"] / 5.0)
 ```
 
-**Vấn đề:** Label gốc là tổng score (1..208). Phân bố rất lệch, cần đưa về khoảng chuẩn cho model học.
-
-**Tại sao `tanh(x/5)` thay vì `2*tanh(x/5)` (v1)?**
+**Thay đổi so với v1:** `tanh(x/5)` thay vì `2*tanh(x/5)`
 
 | | v1: 2·tanh(x/5) | v2: tanh(x/5) |
 |---|---|---|
-| **Range** | (0, 2) | **(0, 1)** |
+| **Range** | (0, 2) | (0, 1) |
 | **BCE Loss** | ❌ Sai — BCE yêu cầu [0, 1] | ✅ Đúng |
 | **Giãn label** | Giãn đều label 1-4 | Giãn đều label 1-4 |
 
-Bỏ hệ số 2, giữ nguyên ưu điểm giãn đều, đưa label về range hợp lệ cho BCE.
+Giữ nguyên ưu điểm giãn đều khoảng cách giữa các mức tương tác (so với sigmoid bão hoà), đồng thời đưa label về range [0, 1] hợp lệ cho BCE Loss.
 
 | Label raw | tanh(x/5) |
 |---|---|
@@ -154,33 +179,28 @@ Bỏ hệ số 2, giữ nguyên ưu điểm giãn đều, đưa label về range
 | 2 (fav) | **0.380** |
 | 3 (cart) | **0.537** |
 | 4 (buy) | **0.665** |
-| 10 (full) | **0.964** |
+| 10 (pv+fav+cart+buy) | **0.964** |
 
-![normalize_comparison](processs/eda/normalize_comparison.png)
-
-#### Step 5 — Temporal split (quá khứ / tương lai)
+#### Step 5 — Leave-last-out split (thay user-holdout)
 ```python
-df = df.sort_values("Timestamp")
-cutoff = df["Timestamp"].quantile(TRAIN_RATIO)  # 90%
-train = df[df["Timestamp"] <= cutoff]
-val = df[df["Timestamp"] > cutoff]
+df = df.sort_values(["UserId", "Timestamp"])
+val_idx = df.groupby("UserId")["Timestamp"].idxmax()
+val = df.loc[val_idx]
+train = df.drop(val_idx)
 ```
 
-**Tại sao temporal thay vì user-holdout (v1)?**
+**Tại sao thay user-holdout?**
 
-| | v1: User-holdout 90/10 | v2: Temporal 90/10 |
+| | User-holdout 90/10 (cũ) | Leave-last-out (mới) |
 |---|---|---|
-| **Train** | 90% users (random) | 90% data cũ nhất (quá khứ) |
-| **Val** | 10% users (random) | 10% data mới nhất (tương lai) |
-| **Val users** | 100% cold-start | ~25% đã có trong train |
-| **Ý nghĩa** | Đánh giá user mới | Dự đoán hành vi tương lai |
-| **Tỉ lệ** | 90/10 | 90/10 |
+| **Val users** | 100% cold-start (user chưa thấy) | User đã có trong train |
+| **Embedding** | Chưa học → predict vô nghĩa | Đã học → predict có ý nghĩa |
+| **Temporal** | Không theo thời gian | Đúng thứ tự thời gian |
 
-Temporal split đánh giá đúng bài toán recommendation: **dựa vào quá khứ, dự đoán khả năng mua trong tương lai**.
-
-- Train chứa tất cả interactions trước mốc thời gian (90th percentile)
-- Val chứa tất cả interactions sau mốc đó
-- User có thể xuất hiện ở cả train và val → model đã học embedding
+Với mỗi user, lấy **interaction cuối cùng** (theo timestamp) làm val:
+- User xuất hiện ở **cả train và val** → embedding đã được train
+- Đánh giá khả năng dự đoán **hành vi tiếp theo** — đúng bài toán recommendation
+- User chỉ có 1 interaction sẽ chỉ nằm trong train (không vào val)
 
 ---
 
@@ -196,9 +216,8 @@ Temporal split đánh giá đúng bài toán recommendation: **dựa vào quá k
 - Đường đứt: Giá trị trung bình
 
 **Ý nghĩa:**
-- ~76% dữ liệu ở bin 0.10-0.20 (chỉ pv)
-- Phân bố lệch trái mạnh → model có xu hướng predict thấp
-- Train vs Val: phân bố tương tự (mean 0.276 vs 0.314)
+- Phân bố lệch trái mạnh (đa số là pv)
+- Train vs Val: phân bố gần như giống nhau → split tốt
 
 ### 4.2. User & Item Statistics
 
@@ -208,10 +227,9 @@ Temporal split đánh giá đúng bài toán recommendation: **dựa vào quá k
 - Biểu đồ trái: Phân phối số lượng item mỗi user tương tác
 - Biểu đồ phải: Phân phối số lượng user mỗi item có
 
-**Ý nghĩa:**
-- Đa số user chỉ tương tác với **1 item** → cold-start là vấn đề chính
-- Đa số item chỉ được **1 user** tương tác → item embedding khó học
-- Sparsity: **99.999%** (ma trận user-item cực thưa)
+**Ý nghĩa (sau k-core):**
+- Mỗi user/item đều có ≥ 5 interactions
+- Sparsity giảm đáng kể so với raw data
 
 ### 4.3. Normalize Comparison
 
@@ -224,14 +242,14 @@ Temporal split đánh giá đúng bài toán recommendation: **dựa vào quá k
 
 ---
 
-## 5. So sánh v1 → v2
+## 5. So sánh pipeline v1 → v2
 
 | Bước | v1 (cũ) | v2 (mới) | Lý do |
 |---|---|---|---|
-| **Normalize** | 2·tanh(x/5) → (0, 2) | tanh(x/5) → (0, 1) | BCE cần label ∈ [0, 1] |
-| **Split** | User-holdout 90/10 | Temporal 90/10 | Dự đoán tương lai, tránh cold-start |
-
-Các bước khác giữ nguyên.
+| **Sampling** | Stratified 4h | Stratified 4h (giữ) | Rải đều dữ liệu ~209h |
+| **K-core** | Không có | k=5 (thêm mới) | Giảm sparsity, embedding có ý nghĩa |
+| **Label** | 2·tanh(x/5) → (0, 2) | tanh(x/5) → (0, 1) | BCE cần label ∈ [0, 1] |
+| **Split** | User-holdout 90/10 | Leave-last-out | Tránh cold-start trên val |
 
 ---
 
@@ -242,7 +260,9 @@ Các bước khác giữ nguyên.
 python -m data.preprocess.load_data
 
 # 2. Build pipeline
-python -m data.preprocess.build --rows 250000
+python -m data.preprocess.build --rows 250000   # 250K → stratified sample → k-core
+python -m data.preprocess.build --rows 500000   # 500K → stratified sample → k-core
+python -m data.preprocess.build                 # full → k-core (không sample)
 
 # 3. EDA
 python -m data.preprocess.eda
@@ -253,11 +273,13 @@ python -m data.preprocess.charts
 
 ### Tham số `--rows`
 
-| Giá trị | Số dòng output | Mục đích |
+| Giá trị | Hành vi | Mục đích |
 |---|---|---|
-| 250000 | 250K | Phát triển, test nhanh |
-| 500000 | 500K | Train thật (cần GPU mạnh) |
-| (bỏ qua) | 75M (full) | Toàn bộ dữ liệu |
+| 250000 | Stratified sample 250K → k-core | Phát triển, test nhanh |
+| 500000 | Stratified sample 500K → k-core | Train vừa |
+| (bỏ qua) | Full 75M → k-core | Toàn bộ dữ liệu |
+
+**Lưu ý:** Số dòng output thực tế có thể ít hơn `--rows` vì k-core filtering sẽ loại bỏ user/item thưa sau sampling.
 
 ---
 
@@ -270,9 +292,9 @@ python -m data.preprocess.charts
 | Timestamp | int32 | 1512345600 | Thời điểm tương tác cuối (max) |
 | Label | float32 | 0.1974 | Score đã normalize: tanh(sum_scores/5) |
 
-**train.csv:** 90% data cũ nhất — quá khứ.
+**train.csv:** Tất cả interactions trừ interaction cuối của mỗi user.
 
-**val.csv:** 10% data mới nhất — tương lai. Dùng để đánh giá khả năng dự đoán hành vi mua sắm trong tương lai.
+**val.csv:** Interaction cuối cùng (theo timestamp) của mỗi user. User đều có mặt trong train → embedding đã được học.
 
 ---
 
@@ -283,21 +305,21 @@ python -m data.preprocess.charts
   "n_rows_take": 250000,
   "n_rows_raw": 100150807,
   "n_rows_clean": 250000,
-  "n_train": 225000,
-  "n_val": 25000,
-  "n_users": 205727,
-  "n_items": 175343,
-  "n_train_users": 187767,
-  "n_val_users": 24087,
+  "n_train": 224000,
+  "n_val": 26000,
+  "n_users": 26000,
+  "n_items": 50000,
+  "n_train_users": 26000,
+  "n_val_users": 26000,
   "hour_bin_size": 4,
-  "sampling": "stratified_by_hour",
-  "split": "temporal",
-  "train_ratio": 0.9,
+  "k_core": 5,
+  "sampling": "stratified_by_hour + k_core",
+  "split": "leave_last_out",
   "label_raw_range": [1, 46],
   "label_norm": "tanh(x/5) -> (0, 1)",
   "label_percentiles": {
     "1%": 0.1974, "50%": 0.1974,
-    "75%": 0.1974, "90%": 0.5370, "99%": 0.9217
+    "75%": 0.3800, "90%": 0.6640, "99%": 0.9217
   },
   "timestamp_span_hours": 209,
   "random_seed": 42,
@@ -309,12 +331,13 @@ python -m data.preprocess.charts
 |---|---|
 | n_rows_take | Số dòng yêu cầu (--rows) |
 | n_rows_raw | Số dòng raw gốc |
-| n_rows_clean | Số dòng output thực tế |
+| n_rows_clean | Số dòng output thực tế (train + val) |
 | n_train / n_val | Số dòng train/val |
-| n_users / n_items | User/item unique |
+| n_users / n_items | User/item unique (sau k-core) |
+| hour_bin_size | Khung giờ cho stratified sampling |
+| k_core | Ngưỡng k-core filtering |
 | sampling | Phương pháp sampling |
-| split | Phương pháp split: temporal |
-| train_ratio | Tỉ lệ train (0.9) |
+| split | Phương pháp split |
 | label_percentiles | Phân phối Label |
 | timestamp_span_hours | Khoảng thời gian (giờ) |
 
