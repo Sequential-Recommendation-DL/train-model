@@ -6,8 +6,9 @@ matplotlib
 scikit-learn
 tqdm
 huggingface-hub
+PyYAML
 ruff
 black
 mypy
 pip
-
+pytorch_lightning
