@@ -7,7 +7,7 @@ Run: 14-06-2026_13h26
 HYPERPARAMETERS:
   - Optimizer: AdamW with decoupled weight decay
   - LR: 0.0002 (warmup 1 epochs + cosine decay)
-  - Loss: MSE (Mean Squared Error)
+  - Loss: BCE
   - Embedding dim: 16
   - Dropout: 0.4
   - Weight decay: linear=0.0001, emb=0.002
