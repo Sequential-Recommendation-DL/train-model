@@ -195,7 +195,7 @@ def negative_sample(df, train_data, num_neg: int = 4):
 
 def run_pipeline(
     model_path: str = "../models/deepfm_best.pth",
-    epochs: int = 10,
+    epochs: int = 70,
     batch_size: int = 256,
     lr: float = 0.0001,
     num_neg_train: int = 4,
