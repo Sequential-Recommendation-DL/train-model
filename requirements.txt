@@ -11,4 +11,4 @@ ruff
 black
 mypy
 pip
-
+pytorch_lightning
