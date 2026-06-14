@@ -1,0 +1,23 @@
+============================================================
+NEUMF TRAINING SUMMARY
+============================================================
+
+Run: 14-06-2026_13h26
+
+HYPERPARAMETERS:
+  - Optimizer: AdamW with decoupled weight decay
+  - LR: 0.0002 (warmup 1 epochs + cosine decay)
+  - Loss: MSE (Mean Squared Error)
+  - Embedding dim: 16
+  - Dropout: 0.4
+  - Weight decay: linear=0.0001, emb=0.002
+
+TRAINING TIME: 36.44 minutes
+
+FINAL METRICS:
+  - HR@10: 0.3934
+  - NDCG@10: 0.2351
+  - ROC AUC: 0.6718
+  - PR AUC (AP): 0.2013
+  - F1 Score (optimal): 0.2613
+  - Optimal threshold: 0.0858
